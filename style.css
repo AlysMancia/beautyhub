@@ -1,0 +1,284 @@
+@import url("https://fonts.googleapis.com/css2?family=Jost:wght@400;700&display=swap");
+
+h1{
+    color: aqua;
+}
+
+body{
+    background-color: azure;
+    margin: 0;
+
+}
+.sbutton{
+    margin-top: 10px;
+    background-color: rgb(255, 255, 255);
+    width: 13em;
+    display: flex;
+    align-items: center;
+    border-radius: 10px;
+    margin-left: 50px;
+
+}
+#searchbar{
+    border-radius: 10px;
+    height: 3em;
+    width: 20em;
+    font-family:'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif;
+    border: none;
+
+}
+
+.searchcontainer{
+    margin-left: 10px;
+}
+button[type="submit"] {
+    text-indent: -999px;
+    width: 40px;
+    padding: 0;
+    margin: 0;
+    border: 1px solid transparent;
+    border-radius: inherit;
+    background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' class='bi bi-search' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z'%3E%3C/path%3E%3C/svg%3E") no-repeat center;
+    cursor: pointer;
+    opacity: 0.7;
+
+
+}
+  button[type="submit"]:hover {
+    opacity: 1;
+  }
+
+
+  /* AZNLOGO*/
+  .logo{
+    width: 20em ;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    
+
+  }
+  .aznpng{
+    width: 30em;
+    height: 20em;
+    padding-top: 20px;
+  }
+.nav2{  
+    background-color:#ffbdd1;
+    list-style-type: none; 
+    overflow: hidden;
+    font-family:'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif;
+    font-size: medium;
+    padding-top: 20px;
+    display: flex;
+    padding-bottom: 20px;
+}
+li :hover{
+    background-color: rgb(255, 255, 255);
+    color: #d88da4;
+}
+
+li{
+    display: inline-block;
+    font-weight: bolder;
+}
+
+a{
+    padding: 10px;
+    color: rgb(255, 255, 255);
+    text-decoration: none;
+
+}
+
+.list{
+    margin-left: 10em;
+    margin-top: 2em;
+}
+
+.tangina{
+    background-color: rgb(253, 217, 12);
+    height: 20px;
+}
+
+.sec{
+    background-color: rgb(255, 255, 255);
+    height: 50em;
+    width: 100%;
+}
+.wsip{
+    padding-top: 50px;
+    text-align: center;
+    font-family: "Playfair", serif;
+    font-size: 15px;
+    padding-bottom: 50px;
+}
+.Learn{
+    font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif;
+}
+
+
+#sec{
+    height: 70vh;
+    width: 100%;
+    background-color: white;
+
+}
+.benefits{
+    margin-top: 10px;
+    display: flex;
+    width: 100%;
+    height: 80h;
+    justify-content: space-evenly;
+}
+
+.uv{
+    background-color: #fed0d0;
+    width:25vh ;
+    height: 35vh;
+    border-radius: 50px;
+    align-content: center;
+    box-shadow: rgba(0, 0, 0, 0.16) 0px 3px 6px, rgba(0, 0, 0, 0.23) 0px 3px 6px;
+    padding: 2px;
+}
+.uvb{
+    height: 10em;
+    transition: transform .2s;
+
+}
+.uvb:hover{
+    transform: scale(1.2);
+}
+h6{
+    padding-top: 15px;
+    font-family: Verdana, Geneva, Tahoma, sans-serif;
+    font-weight: bolder;
+    color: black;
+    position: relative;
+    text-align: center;
+}
+.benefits p{
+text-align: center;
+justify-content: center;
+font-style: italic;
+
+}
+#sunline{
+    width: 50%;
+    padding: 2px;
+    align-items: center;
+    margin-left: 25%;
+    margin-top: 2%;
+}
+
+#reco{
+    width: 100%;
+    height:80vh;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    background-color: #ffbdd1;
+}
+.love{
+    text-align: center;
+    font-family: "Playfair", serif;
+    font-size: 20px;
+    margin-left: 100px;
+}
+.love img{
+    width: 30vh;
+    height: 30vh;
+}
+.slidercon-container{
+    margin-left: 50px;
+}
+.slider-container {
+    height: 700px;
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: start;
+}
+.card {
+    width: 80px;
+    border-radius: .75rem;
+    background-size: cover;
+    cursor: pointer;
+    overflow: hidden;
+    border-radius: 2rem;
+    margin: 0 10px;
+    display: flex;
+    align-items: flex-end;
+    transition: .6s cubic-bezier(.28,-0.03,0,.99);
+    box-shadow: 0px 10px 30px -5px rgba(0,0,0,0.8);
+}
+.card > .row {
+    color: white;
+    display: flex;
+    flex-wrap: nowrap;
+}
+
+.card > .row > .icon {
+    background: #223;
+    color: white;
+    border-radius: 50%;
+    width: 50px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 15px;
+}
+
+.card > .row > .description {
+    display: flex;
+    justify-content: center;
+    flex-direction: column;
+    overflow: hidden;
+    height: 80px;
+    width: 520px;
+    opacity: 0;
+    transform: translateY(30px);
+    transition-delay: .3s;
+    transition: all .3s ease;
+    padding-top: 10px;
+}
+.description p {
+    color: #000000;
+    font-style: italic;
+}
+
+.description h4 {
+    text-transform: uppercase;
+    color: #000;
+    font-family: "Playfair", serif;
+    font-weight: bolder;
+
+}
+input {
+    display: none;
+}
+
+.slider-container input:checked + label {
+    width: 600px;
+}
+
+.slider-container input:checked + label .description {
+    opacity: 1 !important;
+    transform: translateY(0) !important;
+}
+
+.card[for="c1"] {
+    background-image: url('./Assets/glowbomb.jpg');
+}
+.card[for="c2"] {
+    background-image: url('./Assets/lotion.jpg');
+}
+.card[for="c3"] {
+    background-image: url('./Assets/fairyskin.jpg');
+}
+.card[for="c4"] {
+    background-image: url('./Assets/oatmeal.jpg');
+}
+.card[for="c5"] {
+    background-image: url('./Assets/moist.jpg');
+}
