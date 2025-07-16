@@ -12,7 +12,7 @@
             <div class="col-md-12">
                 <h2>Dashboard</h6>
                 <div class="icons_con"> 
-                    <span class="col-md-12 icon_desc">
+                    <span class="col-md-12 icon_desc product_btn">
                         <i class="fa-solid fa-boxes-stacked"></i>
                         <p>Products</p>
                     </span>
