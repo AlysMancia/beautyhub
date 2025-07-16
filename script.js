@@ -22,6 +22,7 @@ $(document).ready(function() {
     $('.carousel-control-prev').click(function() {
         $('#carouselExampleAutoplaying').carousel('prev');
     });
+<<<<<<< HEAD
 
     session();
 });
@@ -222,3 +223,6 @@ $(document).on('click','.user_login_btn',function() {
     });
     return false;
 });    
+=======
+});
+>>>>>>> e290a40fdb79a73fc27f2943d9f68dbd9ec08db2
