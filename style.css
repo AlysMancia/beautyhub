@@ -1,5 +1,5 @@
 @import url("https://fonts.googleapis.com/css2?family=Jost:wght@400;700&display=swap");
-<<<<<<< HEAD
+
 .swal2-container {
     z-index: 9999 !important;
 }
@@ -14,7 +14,6 @@ h1{
 }
 
 html , body{
-    background-color: #fbbcd1;
     font-family:'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif;
     scroll-behavior: smooth;
     scroll-snap-type: y mandatory; 
@@ -29,8 +28,7 @@ html , body{
 
 .nav_container{
     display:inline-flex;
-=======
-
+}
 h1{
     color: aqua;
 }
@@ -61,7 +59,6 @@ body{
 
 .searchcontainer{
     margin-left: 10px;
->>>>>>> e290a40fdb79a73fc27f2943d9f68dbd9ec08db2
 }
 button[type="submit"] {
     text-indent: -999px;
@@ -115,33 +112,26 @@ li{
     font-weight: bolder;
 }
 
-<<<<<<< HEAD
 a, span{
     padding: 10px;
     color: rgb(255, 255, 255);
     text-decoration: none;
     font-family:'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif;
     font-weight: 900;
-
-=======
+}
 a{
     padding: 10px;
     color: rgb(255, 255, 255);
     text-decoration: none;
->>>>>>> e290a40fdb79a73fc27f2943d9f68dbd9ec08db2
-
 }
 
 .list{
-<<<<<<< HEAD
     text-align: center;
     margin-top: 1.5em;
     background-color: #fbbcd1;
-    width: 70%;
-=======
+    width: 62%;
     margin-left: 10em;
     margin-top: 2em;
->>>>>>> e290a40fdb79a73fc27f2943d9f68dbd9ec08db2
 }
 #carousel-con{
 height: 100vh;
@@ -155,14 +145,12 @@ width: 100%;
 
 }
 
-<<<<<<< HEAD
-=======
+
 .sec{
     background-color: rgb(255, 255, 255);
     height: 50em;
     width: 100%;
 }
->>>>>>> e290a40fdb79a73fc27f2943d9f68dbd9ec08db2
 .wsip{
     padding-top: 50px;
     text-align: center;
@@ -184,33 +172,30 @@ width: 100%;
 
 
 #sec{
-<<<<<<< HEAD
+
     height: 83vh;
     width: 100%;
     background-color: white;
     padding-top: 10vh;
-=======
     height: 70vh;
     width: 100%;
     background-color: white;
->>>>>>> e290a40fdb79a73fc27f2943d9f68dbd9ec08db2
 
 } 
 .benefits{
     margin-top: 10px;
     display: flex;
     width: 100%;
-<<<<<<< HEAD
     height: 80vh;
-=======
+
     height: 80h;
->>>>>>> e290a40fdb79a73fc27f2943d9f68dbd9ec08db2
+
     justify-content: space-evenly;
 }
 
 .uv{
     background-color: #fed0d0;
-<<<<<<< HEAD
+
     max-width:12vw ;
     height: 37vh;
     /* height: fit-content; */
@@ -218,14 +203,13 @@ width: 100%;
     align-content: center;
     box-shadow: rgba(0, 0, 0, 0.16) 0px 3px 6px, rgba(0, 0, 0, 0.23) 0px 3px 6px;
     padding: 10px;
-=======
     width:25vh ;
     height: 35vh;
     border-radius: 50px;
     align-content: center;
     box-shadow: rgba(0, 0, 0, 0.16) 0px 3px 6px, rgba(0, 0, 0, 0.23) 0px 3px 6px;
     padding: 2px;
->>>>>>> e290a40fdb79a73fc27f2943d9f68dbd9ec08db2
+
 }
 .uvb{
     height: 10em;
@@ -427,7 +411,6 @@ input {
 .logo img:hover{
     filter: grayscale(0%) ;
     transform: scale(1.1);
-<<<<<<< HEAD
 }
 .nav_sticky {
  background-color: #fbbcd2;
@@ -493,17 +476,4 @@ input {
         border-color: #fbbcd2;
     
     }
-}
-.side_nav{
-    background-color: white;
-    height: 100%;
-    width: 15%;
-    position: absolute;
-    top: 0%;
-    left: 0%;
-    box-shadow: rgba(0, 0, 0, 0.15) 1.95px 1.95px 2.6px;
-    border-radius: 5px;
-    border: 1px solid #f5f5f5;
-=======
->>>>>>> e290a40fdb79a73fc27f2943d9f68dbd9ec08db2
 }

@@ -3,7 +3,6 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta charset="UTF-8">
-
   <!-- Bootstrap CSS -->
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
 
@@ -40,6 +39,7 @@
 session_start();
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
+
 if (!isset($_SESSION['user_id'])) {
   $user_id = 0;
   ?><script>
@@ -55,7 +55,6 @@ if (!isset($_SESSION['user_id'])) {
     <?php
 }
 ?>
-
 </head>
 <title> AZNCOLLECTION</title>
 <body>
@@ -97,7 +96,7 @@ if (!isset($_SESSION['user_id'])) {
               <span>
                 <i class="fa-solid fa-circle-user user_logo"></i>
               </span>
-              <h6> Hello!Username</h6>
+              <h6 id="user_greeting"></h6>
               </button>
               <ul class="dropdown-menu" aria-labelledby="dropdownMenu2">
                 <li><a class="dropdown-item" href ="pages/dashboard.php" type="button">Dashboard</a></li>

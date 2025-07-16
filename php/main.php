@@ -18,7 +18,9 @@ function call_function (){
         case 'all_users_email':
             all_users_email($_POST);
         break;
-        
+        case 'get_user_info':
+            get_user_info($_POST);
+        break;
         default:
             # code...
             break;
@@ -75,4 +77,28 @@ function logout_user(){
     echo json_encode(["success" => true]);
     exit();
 }
-?>
+
+function get_user_info() {
+    session_start();
+    global $conn;
+
+    // Get user_id from POST, GET, or session
+    $user_id = $_POST['user_id'] ?? $_GET['user_id'] ?? $_SESSION['user_id'] ?? null;
+
+    if (!$user_id) {
+        echo json_encode(["error" => "No user ID provided."]);
+        return;
+    }
+
+    $user_id = intval($user_id);
+
+    $sql = "SELECT username FROM users WHERE user_id = $user_id";
+    $result = $conn->query($sql);
+
+    if ($result && $result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        echo json_encode(["username" => $row['username']]);
+    } 
+
+    $conn->close();
+}
