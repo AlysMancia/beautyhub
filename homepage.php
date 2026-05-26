@@ -274,11 +274,7 @@ if (!isset($_SESSION['user_id'])) {
         </div>
         <div class="logo" >
           <a href="#">
-          <img src="Assets/fairy.png" alt="lfs">
-        </a>
-          </div>
-          <div class="logo" >
-            <a href="#">
+
             <img src="Assets/g21logo.jpg" alt="lg21">
           </a>
             </div>
