@@ -1,104 +1,191 @@
 <?php
-$conn = new mysqli("localhost", "root", "", "beautyhub");
-$_SESSION = '';
-call_function($_POST);
+header('Content-Type: application/json; charset=utf-8');
+mysqli_report(MYSQLI_REPORT_OFF);
 
-function call_function (){
-    // echo 'Function Name = ' . $_POST['FunctionName'];
-    switch ($_POST['FunctionName']) {
-        case 'create_user':
-            create_user($_POST);
-        break;
-        case 'login_user':
-            login_user($_POST);
-        break;
-        case 'logout_user':
-            logout_user($_POST);
-        break;
-        case 'all_users_email':
-            all_users_email($_POST);
-        break;
-        case 'get_user_info':
-            get_user_info($_POST);
-        break;
-        default:
-            # code...
-            break;
-    }
+$host = 'localhost';
+$user = 'root';
+$pass = '';
+$db = $_ENV['BEAUTYHUB_DB_NAME'] ?? 'laravel';
+
+$conn = @new mysqli($host, $user, $pass, $db);
+if ($conn->connect_error) {
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'message' => "Database connection failed. Check DB name '$db' in php/main.php.",
+        'error' => $conn->connect_error,
+    ]);
+    exit;
 }
 
-function create_user () {
-    global $conn;
+$functionName = $_POST['FunctionName'] ?? '';
 
-    // echo json_encode('success');
-
-    $stmt = $conn->prepare("INSERT INTO `users` (`username`, `email`, `Firstname`, `Lastname`, `Password`) VALUES ('".$_POST['username']."','".$_POST['email']."' , '".$_POST['Firstname']."', '".$_POST['Lastname']."', '".$_POST['password']."');");
-    echo json_encode("INSERT INTO `users` (`username`, `email`, `Firstname`, `Lastname`, `Password`) VALUES ('".$_POST['username']."','".$_POST['email']."' , '".$_POST['Firstname']."', '".$_POST['Lastname']."', '".$_POST['password']."');");
-    $stmt->execute();
-    $stmt->close();
-    $conn->close();
-}
-function all_users_email() {
-    global $conn;
-
-    $result = $conn->query("SELECT email FROM users");
-    echo json_encode($result->fetch_all(MYSQLI_ASSOC));
-
-    $result->free(); 
-}
-function login_user () {
-    global $conn;
-    $username = $_POST['username'];
-    $email = $_POST['email'];
-    $password = $_POST['password'];
-
-
-
-        $stmt = $conn->prepare("SELECT * FROM users WHERE (username = ? OR email = ?) AND password = ? ");
-        $stmt->bind_param("sss", $username, $email, $password);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $user = $result->fetch_assoc();
-    if ($user['user_id'] > 0) {
-        session_start();
-        $_SESSION['user_id'] = $user['user_id'];
-        
-    } else {
-echo "Invalid username, email, or password.";
-    }
-    echo json_encode($_SESSION['user_id']);
-
-    $stmt->close();
-    $conn->close();
-}
-function logout_user(){
-    session_start();
-    session_destroy();
-    echo json_encode(["success" => true]);
-    exit();
+switch ($functionName) {
+    case 'create_user':
+        create_user($conn);
+        break;
+    case 'login_user':
+        login_user($conn);
+        break;
+    case 'logout_user':
+        logout_user();
+        break;
+    case 'all_users_email':
+        all_users_email($conn);
+        break;
+    case 'get_user_info':
+        get_user_info($conn);
+        break;
+    default:
+        echo json_encode([
+            'success' => false,
+            'message' => 'Invalid FunctionName.',
+        ]);
+        break;
 }
 
-function get_user_info() {
-    session_start();
-    global $conn;
+$conn->close();
 
-    // Get user_id from POST, GET, or session
-    $user_id = $_POST['user_id'] ?? $_GET['user_id'] ?? $_SESSION['user_id'] ?? null;
+function create_user($conn) {
+    $firstName = trim($_POST['Firstname'] ?? '');
+    $lastName = trim($_POST['Lastname'] ?? '');
+    $username = trim($_POST['username'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $password = trim($_POST['password'] ?? '');
 
-    if (!$user_id) {
-        echo json_encode(["error" => "No user ID provided."]);
+    if ($firstName === '' || $lastName === '' || $username === '' || $email === '' || $password === '') {
+        echo json_encode(['success' => false, 'message' => 'Missing required signup fields.']);
         return;
     }
 
-    $user_id = intval($user_id);
+    $name = trim($firstName . ' ' . $lastName);
 
-    $sql = "SELECT username FROM users WHERE user_id = $user_id";
-    $result = $conn->query($sql);
+    $checkStmt = $conn->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+    if (!$checkStmt) {
+        echo json_encode(['success' => false, 'message' => 'Failed to prepare duplicate check.', 'error' => $conn->error]);
+        return;
+    }
 
-    if ($result && $result->num_rows > 0) {
-        $row = $result->fetch_assoc();
-        echo json_encode(["username" => $row['username']]);
-    } 
+    $checkStmt->bind_param('s', $email);
+    $checkStmt->execute();
+    $checkResult = $checkStmt->get_result();
+    if ($checkResult && $checkResult->num_rows > 0) {
+        $checkStmt->close();
+        echo json_encode(['success' => false, 'message' => 'Email is already registered.']);
+        return;
+    }
+    $checkStmt->close();
 
-    $conn->close();
+    $hash = password_hash($password, PASSWORD_DEFAULT);
+    $stmt = $conn->prepare('INSERT INTO users (name, email, password) VALUES (?, ?, ?)');
+    if (!$stmt) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'Insert prepare failed. Check users table columns.',
+            'error' => $conn->error,
+        ]);
+        return;
+    }
+
+    $stmt->bind_param('sss', $name, $email, $hash);
+    if (!$stmt->execute()) {
+        $stmt->close();
+        echo json_encode(['success' => false, 'message' => 'Account creation failed.', 'error' => $conn->error]);
+        return;
+    }
+
+    $newId = $stmt->insert_id;
+    $stmt->close();
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'Account created successfully.',
+        'user_id' => $newId,
+    ]);
 }
+
+function login_user($conn) {
+    $identifier = trim($_POST['username'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $password = trim($_POST['password'] ?? '');
+
+    $lookup = $identifier !== '' ? $identifier : $email;
+
+    if ($lookup === '' || $password === '') {
+        echo json_encode(['success' => false, 'message' => 'Missing login credentials.']);
+        return;
+    }
+
+    $stmt = $conn->prepare('SELECT id, password FROM users WHERE email = ? OR name = ? LIMIT 1');
+    if (!$stmt) {
+        echo json_encode(['success' => false, 'message' => 'Login query failed.', 'error' => $conn->error]);
+        return;
+    }
+
+    $stmt->bind_param('ss', $lookup, $lookup);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $user = $result ? $result->fetch_assoc() : null;
+    $stmt->close();
+
+    if (!$user || !password_verify($password, $user['password'])) {
+        echo json_encode(['success' => false, 'message' => 'Invalid email or password.']);
+        return;
+    }
+
+    session_start();
+    $_SESSION['user_id'] = (int) $user['id'];
+
+    echo json_encode([
+        'success' => true,
+        'user_id' => (int) $user['id'],
+    ]);
+}
+
+function all_users_email($conn) {
+    $result = $conn->query('SELECT email FROM users');
+    if (!$result) {
+        echo json_encode(['success' => false, 'message' => 'Unable to fetch emails.', 'error' => $conn->error]);
+        return;
+    }
+
+    echo json_encode(['success' => true, 'data' => $result->fetch_all(MYSQLI_ASSOC)]);
+    $result->free();
+}
+
+function logout_user() {
+    session_start();
+    session_destroy();
+    echo json_encode(['success' => true]);
+}
+
+function get_user_info($conn) {
+    session_start();
+    $user_id = $_POST['user_id'] ?? $_GET['user_id'] ?? $_SESSION['user_id'] ?? null;
+
+    if (!$user_id) {
+        echo json_encode(['success' => false, 'message' => 'No user ID provided.']);
+        return;
+    }
+
+    $user_id = (int) $user_id;
+    $stmt = $conn->prepare('SELECT name FROM users WHERE id = ? LIMIT 1');
+    if (!$stmt) {
+        echo json_encode(['success' => false, 'message' => 'User query failed.', 'error' => $conn->error]);
+        return;
+    }
+
+    $stmt->bind_param('i', $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result ? $result->fetch_assoc() : null;
+    $stmt->close();
+
+    if (!$row) {
+        echo json_encode(['success' => false, 'message' => 'User not found.']);
+        return;
+    }
+
+    echo json_encode(['success' => true, 'name' => $row['name']]);
+}
+?>

@@ -60,7 +60,7 @@ export default function SignupPage() {
       return;
     }
 
-    await postForm({
+    const result = await postForm({
       FunctionName: 'create_user',
       Firstname: firstName.trim(),
       Lastname: lastName.trim(),
@@ -68,6 +68,12 @@ export default function SignupPage() {
       email: email.trim().toLowerCase(),
       password: password.trim(),
     });
+
+    if (!result || result.success !== true) {
+      setError(result?.message || 'Signup failed. Please try again.');
+      setBusy(false);
+      return;
+    }
 
     setSuccess('Account created successfully. Redirecting to login...');
     setTimeout(() => router.push('/login'), 1400);
@@ -83,7 +89,7 @@ export default function SignupPage() {
                 <img src="/Assets/InVoice.png" alt="InVoice logo" />
                 <span className="brand_name">InVoice</span>
               </div>
-              <span className="brand_tag">Beauty · Sales · Inventory</span>
+              <span className="brand_tag">Beauty | Sales | Inventory</span>
             </div>
             <div style={{ flex: 1 }} />
             <div className="users_tab">
@@ -95,11 +101,12 @@ export default function SignupPage() {
         </nav>
       </header>
 
-      <main className="auth_page">
+      <main className="auth_page auth_page_signup">
         <section className="auth_card auth_card_large">
+          <p className="auth_eyebrow">Create Account</p>
           <div className="auth_header">
-            <h1>Create Your Account</h1>
-            <p className="auth_subtitle">Join InVoice to start managing your invoices and inventory today.</p>
+            <h1>Join InVoice today</h1>
+            <p className="auth_subtitle">Build your beauty business dashboard in minutes.</p>
           </div>
 
           <form onSubmit={handleSubmit}>
@@ -171,7 +178,7 @@ export default function SignupPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="At least 6 characters"
               />
             </div>
 
@@ -179,7 +186,7 @@ export default function SignupPage() {
             {success && <p className="auth_success">{success}</p>}
 
             <button className="btn btn-primary auth_submit" type="submit" disabled={busy}>
-              {busy ? 'Creating account…' : 'Create Account'}
+              {busy ? 'Creating account...' : 'Create Account'}
             </button>
           </form>
 
@@ -196,3 +203,4 @@ export default function SignupPage() {
     </>
   );
 }
+

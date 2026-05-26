@@ -49,14 +49,13 @@ export default function LoginPage() {
       password: password.trim(),
     });
 
-    const id = Number(result);
-    if (id > 0) {
-      localStorage.setItem('user_id', id);
+    if (result && result.success === true && Number(result.user_id) > 0) {
+      localStorage.setItem('user_id', String(result.user_id));
       router.push('/dashboard');
-    } else {
-      setError('Incorrect username or password.');
+      return;
     }
 
+    setError(result?.message || 'Incorrect email or password.');
     setBusy(false);
   };
 
@@ -70,7 +69,7 @@ export default function LoginPage() {
                 <img src="/Assets/InVoice.png" alt="InVoice logo" />
                 <span className="brand_name">InVoice</span>
               </div>
-              <span className="brand_tag">Beauty · Sales · Inventory</span>
+              <span className="brand_tag">Beauty | Sales | Inventory</span>
             </div>
             <div style={{ flex: 1 }} />
             <div className="users_tab">
@@ -82,11 +81,12 @@ export default function LoginPage() {
         </nav>
       </header>
 
-      <main className="auth_page">
+      <main className="auth_page auth_page_login">
         <section className="auth_card">
+          <p className="auth_eyebrow">Welcome Back</p>
           <div className="auth_header">
-            <h1>Welcome Back</h1>
-            <p className="auth_subtitle">Login to your InVoice account to manage your invoices and inventory.</p>
+            <h1>Sign in to your account</h1>
+            <p className="auth_subtitle">Manage your beauty inventory and sales from one place.</p>
           </div>
 
           <form onSubmit={handleSubmit}>
@@ -114,14 +114,14 @@ export default function LoginPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="Enter your password"
               />
             </div>
 
             {error && <p className="auth_error">{error}</p>}
 
             <button className="btn btn-primary auth_submit" type="submit" disabled={busy}>
-              {busy ? 'Signing in…' : 'Sign In'}
+              {busy ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
 
