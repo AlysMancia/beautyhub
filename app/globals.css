@@ -295,6 +295,10 @@ a, a:visited { color: var(--accent); }
   min-width: 180px;
 }
 
+.loginn .login_dropdown .dropdown-menu.show {
+  display: block;
+}
+
 #carousel-con {
   height: min(100vh, 800px);
   width: 100%;

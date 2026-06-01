@@ -49,6 +49,7 @@ export default function Home() {
   const [userId, setUserId] = useState(null);
   const [username, setUsername] = useState('Guest');
   const [activeSlide, setActiveSlide] = useState(0);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   useEffect(() => {
     const savedUserId = localStorage.getItem('user_id');
@@ -100,6 +101,7 @@ export default function Home() {
     localStorage.removeItem('username');
     setUserId(null);
     setUsername('Guest');
+    setIsUserMenuOpen(false);
   };
 
   const slideIndicatorStyles = (index) => ({
@@ -134,18 +136,18 @@ export default function Home() {
                   <button
                     className="btn btn-secondary dropdown-toggle"
                     type="button"
-                    data-bs-toggle="dropdown"
-                    aria-expanded="false"
+                    aria-expanded={isUserMenuOpen}
+                    onClick={() => setIsUserMenuOpen((open) => !open)}
                   >
                     <span>
                       <i className="fa-solid fa-circle-user user_logo"></i>
                     </span>
                     <span>{`Hello, ${username}`}</span>
                   </button>
-                  <ul className="dropdown-menu">
+                  <ul className={`dropdown-menu${isUserMenuOpen ? ' show' : ''}`}>
                     <li>
-                      <a className="dropdown-item" href="/dashboard">
-                        Dashboard
+                      <a className="dropdown-item fw-semibold text-center" href="/dashboard">
+                        Go to Dashboard
                       </a>
                     </li>
                     <li>
