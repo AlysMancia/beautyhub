@@ -5,7 +5,7 @@ mysqli_report(MYSQLI_REPORT_OFF);
 $host = 'localhost';
 $user = 'root';
 $pass = '';
-$db = $_ENV['BEAUTYHUB_DB_NAME'] ?? 'laravel';
+$db = $_ENV['BEAUTYHUB_DB_NAME'] ?? 'beautyhub';
 
 $conn = @new mysqli($host, $user, $pass, $db);
 if ($conn->connect_error) {
