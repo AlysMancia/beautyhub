@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "BeautyHub (Docker)",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "beautyhub",
+      "Username": "beautyhub",
+      "SSLMode": "prefer"
+    }
+  }
+}

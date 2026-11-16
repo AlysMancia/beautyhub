@@ -1,5 +1,6 @@
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './globals.css';
+import './roles.css';
 
 export const metadata = {
   title: 'InVoice',

@@ -6,16 +6,24 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "ws": "node server/ws-server.js",
+    "dev:all": "concurrently -k -n next,ws -c magenta,cyan \"next dev\" \"node server/ws-server.js\""
   },
   "dependencies": {
     "bootstrap": "5.3.3",
+    "exceljs": "^4.4.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^2.5.2",
+    "leaflet": "^1.9.4",
     "next": "^14.2.35",
     "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react-dom": "18.3.1",
+    "ws": "^8.23.0"
   },
   "devDependencies": {
+    "concurrently": "^9.2.5",
     "eslint": "8.57.0",
-    "eslint-config-next": "^16.2.6"
+    "eslint-config-next": "^14.2.35"
   }
 }

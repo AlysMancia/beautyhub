@@ -1,103 +1,68 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import SiteHeader from '../components/SiteHeader';
+import { api, homeFor, storeHref } from '../lib/api';
 
-const API_URL = '/api/php/main';
-
-const postForm = async (data) => {
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams(data),
-    credentials: 'include',
-  });
-
-  const text = await response.text();
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-};
-
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const storeSlug = useSearchParams().get('store') || '';
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const signupHref = storeSlug ? `/signup?store=${encodeURIComponent(storeSlug)}` : '/signup';
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
-    setBusy(true);
 
     if (!usernameOrEmail.trim() || !password.trim()) {
       setError('Please fill in both fields.');
-      setBusy(false);
       return;
     }
 
-    const result = await postForm({
-      FunctionName: 'login_user',
+    setBusy(true);
+    const result = await api('login_user', {
       username: usernameOrEmail.trim(),
-      email: usernameOrEmail.trim(),
       password: password.trim(),
     });
 
-    if (result && result.success === true && Number(result.user_id) > 0) {
-      localStorage.setItem('user_id', String(result.user_id));
-      router.push('/dashboard');
+    if (result.success) {
+      // Came from a seller's link: go back to that store page.
+      router.push(storeSlug ? storeHref(storeSlug) : homeFor(result));
       return;
     }
 
-    setError(result?.message || 'Incorrect email or password.');
+    setError(result.message || 'Incorrect email or password.');
     setBusy(false);
   };
 
   return (
     <>
-      <header className="nav_sticky">
-        <nav>
-          <div className="container-fluid nav_container">
-            <div className="brand_block">
-              <div className="brand_logo">
-                <img src="/Assets/InVoice.png" alt="InVoice logo" />
-                <span className="brand_name">InVoice</span>
-              </div>
-              <span className="brand_tag">Beauty | Sales | Inventory</span>
-            </div>
-            <div style={{ flex: 1 }} />
-            <div className="users_tab">
-              <Link href="/signup" className="btn signup_btn" style={{ textDecoration: 'none' }}>
-                Sign Up
-              </Link>
-            </div>
-          </div>
-        </nav>
-      </header>
+      <SiteHeader>
+        <Link href={signupHref} className="btn signup_btn">Sign Up</Link>
+      </SiteHeader>
 
       <main className="auth_page auth_page_login">
         <section className="auth_card">
           <p className="auth_eyebrow">Welcome Back</p>
           <div className="auth_header">
             <h1>Sign in to your account</h1>
-            <p className="auth_subtitle">Manage your beauty inventory and sales from one place.</p>
+            <p className="auth_subtitle">Sellers and customers both sign in here.</p>
           </div>
 
           <form onSubmit={handleSubmit}>
             <div className="auth_form_group">
-              <label className="auth_label" htmlFor="loginUsername">
-                Email or Username
-              </label>
+              <label className="auth_label" htmlFor="loginUsername">Email or Username</label>
               <input
                 id="loginUsername"
                 className="form-control auth_input"
                 type="text"
+                autoComplete="username"
                 value={usernameOrEmail}
                 onChange={(e) => setUsernameOrEmail(e.target.value)}
                 placeholder="hello@example.com"
@@ -105,13 +70,12 @@ export default function LoginPage() {
             </div>
 
             <div className="auth_form_group">
-              <label className="auth_label" htmlFor="loginPassword">
-                Password
-              </label>
+              <label className="auth_label" htmlFor="loginPassword">Password</label>
               <input
                 id="loginPassword"
                 className="form-control auth_input"
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"
@@ -128,13 +92,19 @@ export default function LoginPage() {
           <div className="auth_divider">
             <p className="auth_switch">
               Don&apos;t have an account?{' '}
-              <Link href="/signup" className="auth_link">
-                Create one
-              </Link>
+              <Link href={signupHref} className="auth_link">Create one</Link>
             </p>
           </div>
         </section>
       </main>
     </>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

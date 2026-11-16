@@ -1,201 +1,181 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import SiteHeader from '../components/SiteHeader';
+import { api, storeHref } from '../lib/api';
 
-const API_URL = '/api/php/main';
+const slugPreview = (name) =>
+  name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'your-store';
 
-const postForm = async (data) => {
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams(data),
-    credentials: 'include',
-  });
+function Field({ id, label, children }) {
+  return (
+    <div className="auth_form_group">
+      <label className="auth_label" htmlFor={id}>{label}</label>
+      {children}
+    </div>
+  );
+}
 
-  const text = await response.text();
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-};
-
-export default function SignupPage() {
+function SignupForm() {
   const router = useRouter();
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const params = useSearchParams();
+  const storeSlug = params.get('store') || ''; // came from a seller's link
+  const [accountType, setAccountType] = useState(
+    storeSlug ? 'customer' : params.get('type') === 'seller' ? 'seller' : 'customer'
+  );
+  const [joiningStore, setJoiningStore] = useState(null);
+  const [form, setForm] = useState({ firstName: '', lastName: '', username: '', email: '', password: '', storeName: '' });
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!storeSlug) return;
+    api('get_store', { slug: storeSlug }).then((data) => {
+      if (data.success) setJoiningStore(data.store);
+      else setError('That store link is not valid. You can still create a customer account.');
+    });
+  }, [storeSlug]);
+
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const isSeller = accountType === 'seller';
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
-    setSuccess('');
-    setBusy(true);
 
+    const { firstName, lastName, username, email, password, storeName } = form;
     if (!firstName.trim() || !lastName.trim() || !username.trim() || !email.trim() || !password.trim()) {
       setError('Please fill in all fields.');
-      setBusy(false);
       return;
     }
-
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailPattern.test(email.trim())) {
+    if (isSeller && !storeName.trim()) {
+      setError('Please enter your store name.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setError('Please enter a valid email address.');
-      setBusy(false);
       return;
     }
-
     if (password.trim().length < 6) {
       setError('Password must be at least 6 characters.');
-      setBusy(false);
       return;
     }
 
-    const result = await postForm({
-      FunctionName: 'create_user',
+    setBusy(true);
+    const result = await api('create_user', {
+      account_type: accountType,
       Firstname: firstName.trim(),
       Lastname: lastName.trim(),
       username: username.trim().toLowerCase(),
       email: email.trim().toLowerCase(),
       password: password.trim(),
+      ...(isSeller ? { store_name: storeName.trim() } : {}),
+      ...(!isSeller && joiningStore ? { store_slug: storeSlug } : {}),
     });
 
-    if (!result || result.success !== true) {
-      setError(result?.message || 'Signup failed. Please try again.');
+    if (!result.success) {
+      setError(result.message || 'Signup failed. Please try again.');
       setBusy(false);
       return;
     }
 
-    setSuccess('Account created successfully. Redirecting to login...');
-    setTimeout(() => router.push('/login'), 1400);
+    // The new account is already logged in.
+    if (result.account_type === 'seller') router.push('/dashboard');
+    else router.push(result.store_slug ? storeHref(result.store_slug) : '/account');
   };
+
+  const loginHref = storeSlug ? `/login?store=${encodeURIComponent(storeSlug)}` : '/login';
 
   return (
     <>
-      <header className="nav_sticky">
-        <nav>
-          <div className="container-fluid nav_container">
-            <div className="brand_block">
-              <div className="brand_logo">
-                <img src="/Assets/InVoice.png" alt="InVoice logo" />
-                <span className="brand_name">InVoice</span>
-              </div>
-              <span className="brand_tag">Beauty | Sales | Inventory</span>
-            </div>
-            <div style={{ flex: 1 }} />
-            <div className="users_tab">
-              <Link href="/login" className="btn login_btn" style={{ textDecoration: 'none' }}>
-                Login
-              </Link>
-            </div>
-          </div>
-        </nav>
-      </header>
+      <SiteHeader>
+        <Link href={loginHref} className="btn login_btn">Login</Link>
+      </SiteHeader>
 
       <main className="auth_page auth_page_signup">
         <section className="auth_card auth_card_large">
           <p className="auth_eyebrow">Create Account</p>
           <div className="auth_header">
-            <h1>Join InVoice today</h1>
-            <p className="auth_subtitle">Build your beauty business dashboard in minutes.</p>
+            <h1>{joiningStore ? `Join ${joiningStore.name}` : 'Join InVoice today'}</h1>
+            <p className="auth_subtitle">
+              {isSeller ? 'Get your own store link in minutes.' : 'Shop from the sellers you buy from.'}
+            </p>
           </div>
 
+          {joiningStore ? (
+            <p className="joining_banner">
+              You&apos;re signing up as a customer of <strong>{joiningStore.name}</strong>.
+            </p>
+          ) : (
+            <div className="type_picker" role="radiogroup" aria-label="Account type">
+              {[
+                ['seller', 'fa-store', 'Seller', 'I sell products'],
+                ['customer', 'fa-bag-shopping', 'Customer', 'I buy from sellers'],
+              ].map(([value, icon, title, hint]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={accountType === value}
+                  className={`type_option${accountType === value ? ' selected' : ''}`}
+                  onClick={() => setAccountType(value)}
+                >
+                  <strong><i className={`fa-solid ${icon}`} />{title}</strong>
+                  <span>{hint}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <form onSubmit={handleSubmit}>
+            {isSeller && (
+              <Field id="signupStore" label="Store name">
+                <input
+                  id="signupStore"
+                  className="form-control auth_input"
+                  value={form.storeName}
+                  onChange={set('storeName')}
+                  placeholder="Glow Beauty Supply"
+                />
+                <p className="link_preview">
+                  Your store link: <code>/store/{slugPreview(form.storeName)}</code>
+                </p>
+              </Field>
+            )}
+
             <div className="auth_form_row">
-              <div className="auth_form_group">
-                <label className="auth_label" htmlFor="signupFirstName">
-                  First name
-                </label>
-                <input
-                  id="signupFirstName"
-                  className="form-control auth_input"
-                  type="text"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  placeholder="Jane"
-                />
-              </div>
-
-              <div className="auth_form_group">
-                <label className="auth_label" htmlFor="signupLastName">
-                  Last name
-                </label>
-                <input
-                  id="signupLastName"
-                  className="form-control auth_input"
-                  type="text"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  placeholder="Doe"
-                />
-              </div>
+              <Field id="signupFirstName" label="First name">
+                <input id="signupFirstName" className="form-control auth_input" value={form.firstName} onChange={set('firstName')} placeholder="Jane" />
+              </Field>
+              <Field id="signupLastName" label="Last name">
+                <input id="signupLastName" className="form-control auth_input" value={form.lastName} onChange={set('lastName')} placeholder="Doe" />
+              </Field>
             </div>
 
-            <div className="auth_form_group">
-              <label className="auth_label" htmlFor="signupUsername">
-                Username
-              </label>
-              <input
-                id="signupUsername"
-                className="form-control auth_input"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="janedoe"
-              />
-            </div>
+            <Field id="signupUsername" label="Username">
+              <input id="signupUsername" className="form-control auth_input" autoComplete="username" value={form.username} onChange={set('username')} placeholder="janedoe" />
+            </Field>
 
-            <div className="auth_form_group">
-              <label className="auth_label" htmlFor="signupEmail">
-                Email
-              </label>
-              <input
-                id="signupEmail"
-                className="form-control auth_input"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="jane@example.com"
-              />
-            </div>
+            <Field id="signupEmail" label="Email">
+              <input id="signupEmail" className="form-control auth_input" type="email" autoComplete="email" value={form.email} onChange={set('email')} placeholder="jane@example.com" />
+            </Field>
 
-            <div className="auth_form_group">
-              <label className="auth_label" htmlFor="signupPassword">
-                Password
-              </label>
-              <input
-                id="signupPassword"
-                className="form-control auth_input"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 6 characters"
-              />
-            </div>
+            <Field id="signupPassword" label="Password">
+              <input id="signupPassword" className="form-control auth_input" type="password" autoComplete="new-password" value={form.password} onChange={set('password')} placeholder="At least 6 characters" />
+            </Field>
 
             {error && <p className="auth_error">{error}</p>}
-            {success && <p className="auth_success">{success}</p>}
 
             <button className="btn btn-primary auth_submit" type="submit" disabled={busy}>
-              {busy ? 'Creating account...' : 'Create Account'}
+              {busy ? 'Creating account...' : isSeller ? 'Create my store' : 'Create Account'}
             </button>
           </form>
 
           <div className="auth_divider">
             <p className="auth_switch">
-              Already have an account?{' '}
-              <Link href="/login" className="auth_link">
-                Sign in
-              </Link>
+              Already have an account? <Link href={loginHref} className="auth_link">Sign in</Link>
             </p>
           </div>
         </section>
@@ -204,3 +184,10 @@ export default function SignupPage() {
   );
 }
 
+export default function SignupPage() {
+  return (
+    <Suspense>
+      <SignupForm />
+    </Suspense>
+  );
+}

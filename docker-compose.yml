@@ -1,0 +1,67 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: beautyhub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-beautyhub}
+      POSTGRES_USER: ${DB_USER:-beautyhub}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-beautyhub}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # *.sql files run only when the volume is first created; migrate.bat applies them to an existing DB.
+      - ./database/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-beautyhub} -d ${DB_NAME:-beautyhub}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: beautyhub-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@beautyhub.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "${PGADMIN_PORT:-5052}:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  php:
+    build: ./docker/php
+    container_name: beautyhub-php
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-beautyhub}
+      DB_USER: ${DB_USER:-beautyhub}
+      DB_PASSWORD: ${DB_PASSWORD:-beautyhub}
+      WS_BROADCAST_URL: http://host.docker.internal:${WS_PORT:-3001}/broadcast
+      WS_BROADCAST_SECRET: ${WS_BROADCAST_SECRET:-change-me}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Manila}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${PHP_PORT:-8088}:80"
+    volumes:
+      - ./php:/var/www/html/php:ro
+      - uploads:/var/www/html/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  pgadmin-data:
+  uploads:
