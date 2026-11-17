@@ -8,6 +8,7 @@ import Pager from '../../components/Pager';
 import { api } from '../../lib/api';
 import { formatCode, money } from '../../lib/format';
 import { useServerList } from '../../lib/useServerList';
+import { confirmDialog } from '../../components/Dialogs';
 
 /**
  * Link a hand-added customer to the account they made themselves, using the
@@ -21,7 +22,7 @@ function LinkAccount({ member, onLinked }) {
   const link = async () => {
     setError('');
     if (code.replace(/[^a-z0-9]/gi, '').length !== 8) return setError('The code has 8 letters/numbers, e.g. K7M2-QX9P.');
-    if (!window.confirm(`Link ${member.name} to the account with code ${code.toUpperCase()}? Their orders, tier and notes move to that account.`)) return;
+    if (!(await confirmDialog(`Their orders, tier and notes move to the account with code ${code.toUpperCase()}.`, { title: `Link ${member.name}?`, confirmLabel: 'Link account' }))) return;
     setBusy(true);
     const result = await api('link_customer_account', { member_id: member.id, code });
     setBusy(false);
@@ -158,7 +159,7 @@ export default function CustomersPage() {
   };
 
   const removeMember = async (member) => {
-    if (!window.confirm(`Remove ${member.name} from your store?`)) return;
+    if (!(await confirmDialog('They can join again from your store link.', { title: `Remove ${member.name}?`, confirmLabel: 'Remove', danger: true }))) return;
     const result = await api('remove_member', { member_id: member.id });
     if (!result.success) setError(result.message);
     list.reload();

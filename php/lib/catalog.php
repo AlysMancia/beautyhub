@@ -36,7 +36,7 @@ function catalog_lists($conn, $storeId) {
     $uoms->execute([$storeId]);
 
     $roles = $conn->prepare(
-        'SELECT r.id, r.name, r.is_default, r.tier_level, (s.cost_role_id = r.id) IS TRUE AS is_cost
+        'SELECT r.id, r.name, r.is_default, r.tier_level, r.is_srp, (s.cost_role_id = r.id) IS TRUE AS is_cost
          FROM store_roles r JOIN stores s ON s.id = r.store_id
          WHERE r.store_id = ? ORDER BY r.tier_level, r.id'
     );

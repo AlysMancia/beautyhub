@@ -90,18 +90,22 @@ function store_products_page($conn, $storeId, $roleId, array $filters, $page, $p
 
     $stmt = $conn->prepare(
         "SELECT p.id, p.name, p.description, p.brand_id, b.name AS brand, b.logo_path AS brand_logo, p.has_variants, p.variant_label,
-                c.name AS category, u.code AS uom, p.uom_qty,
+                c.name AS category, u.code AS uom, p.uom_qty, p.stock_qty,
                 p.promo_price, p.promo_type, p.promo_until,
                 tier_price(p.id, ?) AS price,
+                tier_price(p.id, ?) AS srp,
                 (SELECT thumb_path FROM product_media WHERE product_id = p.id AND is_cover LIMIT 1) AS cover,
                 (SELECT COUNT(*) FROM product_media WHERE product_id = p.id) AS media_count
          $from WHERE $where
          ORDER BY LOWER(b.name), LOWER(p.name)
          LIMIT ? OFFSET ?"
     );
-    $stmt->execute(array_merge([(int) $roleId], $params, [$perPage, ($page - 1) * $perPage]));
+    // Members of another tier also see the SRP (retail) price to compare.
+    $srpRoleId = srp_role_id($conn, $storeId);
+    $showSrp = $srpRoleId && (int) $srpRoleId !== (int) $roleId;
+    $stmt->execute(array_merge([(int) $roleId, (int) $srpRoleId], $params, [$perPage, ($page - 1) * $perPage]));
 
-    $products = array_map(function ($row) {
+    $products = array_map(function ($row) use ($showSrp) {
         $active = promo_is_active($row);
         $lower = $active && ($row['price'] === null || (float) $row['promo_price'] < (float) $row['price']);
         return [
@@ -117,23 +121,36 @@ function store_products_page($conn, $storeId, $roleId, array $filters, $page, $p
             'cover' => $row['cover'],
             'media_count' => (int) $row['media_count'],
             'price' => $row['price'],
+            'srp' => $showSrp && $row['srp'] !== null && (float) $row['srp'] !== (float) $row['price'] ? $row['srp'] : null,
             'promo_price' => $lower ? $row['promo_price'] : null,
             'promo_type' => $active ? $row['promo_type'] : null,
             'promo_until' => $active ? $row['promo_until'] : null,
             'has_variants' => (bool) $row['has_variants'],
             'variant_label' => $row['variant_label'],
+            // Only what's in stock can be ordered.
+            'stock' => max(0, (int) $row['stock_qty']),
+            'in_stock' => (int) $row['stock_qty'] > 0,
         ];
     }, $stmt->fetchAll());
 
     // Variants customers can pick from (only active ones; stock shown as in / out).
     $variants = variants_for_products($conn, array_column(array_filter($products, fn ($p) => $p['has_variants']), 'id'));
     $store = ['id' => $storeId, 'cost_role_id' => 0];
-    $vPrices = variant_prices_for_role($conn, $store, array_merge([], ...array_map(fn ($list) => array_column($list, 'id'), array_values($variants))), $roleId);
+    $variantIds = array_merge([], ...array_map(fn ($list) => array_column($list, 'id'), array_values($variants)));
+    $vPrices = variant_prices_for_role($conn, $store, $variantIds, $roleId);
+    $vSrp = $showSrp ? variant_prices_for_role($conn, $store, $variantIds, $srpRoleId) : [];
+    $breaks = qty_breaks($conn, array_column($products, 'id'), $roleId);
     foreach ($products as &$p) {
         $p['variants'] = array_values(array_map(
-            fn ($v) => ['id' => $v['id'], 'name' => $v['name'], 'image' => $v['image'], 'image_full' => $v['image_full'], 'in_stock' => $v['stock_qty'] > 0, 'price' => $vPrices[$v['id']]['price'] ?? null],
+            fn ($v) => [
+                'id' => $v['id'], 'name' => $v['name'], 'image' => $v['image'], 'image_full' => $v['image_full'],
+                'in_stock' => $v['stock_qty'] > 0, 'stock' => max(0, (int) $v['stock_qty']), 'price' => $vPrices[$v['id']]['price'] ?? null,
+                'srp' => isset($vSrp[$v['id']]) && (float) $vSrp[$v['id']]['price'] !== (float) ($vPrices[$v['id']]['price'] ?? 0) ? $vSrp[$v['id']]['price'] : null,
+            ],
             array_filter($variants[$p['id']] ?? [], fn ($v) => $v['is_active'])
         ));
+        // "Buy more, pay less" steps for this customer's tier.
+        $p['qty_prices'] = $breaks[$p['id']] ?? [];
     }
     unset($p);
 
@@ -199,6 +216,7 @@ function quoted_products($conn, $store, array $ids, $roleId) {
     $thumbs = $t->fetchAll(PDO::FETCH_KEY_PAIR);
     $variants = variants_for_products($conn, $ids);
     $vPrices = variant_prices_for_role($conn, $store, array_merge([], ...array_map(fn ($list) => array_column($list, 'id'), array_values($variants))), $roleId);
+    $breaks = qty_breaks($conn, $ids, $roleId);
 
     $out = [];
     foreach ($ids as $id) {
@@ -216,6 +234,7 @@ function quoted_products($conn, $store, array $ids, $roleId) {
             'price' => $r['price'],
             'cost' => $r['cost'],
             'cover' => $thumbs[$id] ?? null,
+            'qty_prices' => $breaks[$id] ?? [],
             'has_variants' => (bool) $r['has_variants'],
             'variant_label' => $r['variant_label'],
             'variants' => array_map(function ($v) use ($vPrices) {

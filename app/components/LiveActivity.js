@@ -13,6 +13,8 @@ const describe = (event) => {
       return `${name} joined your store`;
     case 'member_logged_in':
       return `${name} logged in`;
+    case 'payment_submitted':
+      return `${name} sent a payment for ${event.payload?.invoice_no ?? 'an order'}`;
     default:
       return event.type;
   }
@@ -52,6 +54,7 @@ export default function LiveActivity({ token, onEvent }) {
         if (event.type === 'subscribed') setStatus('live');
         else if (event.type === 'error') setStatus('offline');
         else if (event.type === 'presence') setOnline(event.payload?.online ?? 0);
+        else if (event.type === 'notification') onEventRef.current?.(event); // shown by the bell
         else if (event.type !== 'pong') {
           setEvents((prev) => [event, ...prev].slice(0, 8));
           onEventRef.current?.(event);

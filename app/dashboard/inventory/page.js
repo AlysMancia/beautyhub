@@ -16,6 +16,8 @@ const REASONS = {
   import: 'Excel import',
   invoice: 'Sold',
   invoice_cancelled: 'Invoice cancelled',
+  invoice_edited: 'Invoice edited',
+  invoice_deleted: 'Invoice deleted',
 };
 
 function AdjustPanel({ product, onDone, onCancel }) {

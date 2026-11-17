@@ -11,6 +11,7 @@ import { exportProducts, readProductsFile } from '../../lib/excel';
 import { money, promoLabel } from '../../lib/format';
 import { useServerList } from '../../lib/useServerList';
 import { useSeller } from '../SellerContext';
+import { confirmDialog } from '../../components/Dialogs';
 
 export default function ProductsPage() {
   const { store } = useSeller();
@@ -66,7 +67,7 @@ export default function ProductsPage() {
   };
 
   const remove = async (product) => {
-    if (!window.confirm(`Delete "${product.name}" and its photos? This cannot be undone.`)) return;
+    if (!(await confirmDialog('Its photos are deleted too. This cannot be undone.', { title: `Delete "${product.name}"?`, confirmLabel: 'Delete', danger: true }))) return;
     const result = await api('delete_product', { id: product.id });
     if (!result.success) setError(result.message);
     list.reload();

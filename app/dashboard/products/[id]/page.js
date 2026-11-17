@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Suspense, useEffect, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import MediaManager from '../../../components/MediaManager';
+import QtyPricesEditor from '../../../components/QtyPricesEditor';
 import VariantsEditor from '../../../components/VariantsEditor';
 import { api } from '../../../lib/api';
 import { margin } from '../../../lib/format';
@@ -269,6 +270,15 @@ function ProductFormPage() {
               ? ` Profit is worked out against your ${costRole.name} price.`
               : ' Mark one tier as "My cost" in Settings → Customer tiers to see your profit.'}
           </p>
+        </article>
+
+        <article className="card">
+          <h3>Quantity prices <small className="muted">buy more, pay less</small></h3>
+          {isNew ? (
+            <p className="muted" style={{ margin: 0 }}>Save the product first, then add prices for bigger quantities here.</p>
+          ) : (
+            <QtyPricesEditor productId={id} roles={catalog.roles} initial={catalog.qty_prices} prices={form.prices} />
+          )}
         </article>
 
         <article className="card">

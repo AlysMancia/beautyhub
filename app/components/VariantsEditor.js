@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { api, uploadFile } from '../lib/api';
+import { confirmDialog, alertDialog } from './Dialogs';
 
 const LABELS = ['Shade', 'Color', 'Size', 'Scent', 'Flavor', 'Type'];
 
@@ -20,7 +21,7 @@ function PhotoPick({ media, value, onChange, productId, onUploaded }) {
     setBusy(true);
     const result = await uploadFile('upload_product_media', { product_id: productId }, f);
     setBusy(false);
-    if (!result.success) return window.alert(result.message);
+    if (!result.success) return alertDialog(result.message, { title: 'Upload failed' });
     onUploaded(result.media);
     const newest = result.media.filter((m) => m.kind === 'image').reduce((a, b) => (b.id > a.id ? b : a));
     onChange(newest.id);
@@ -94,7 +95,7 @@ export default function VariantsEditor({ productId, product, media, onSaved, rol
 
   const toggle = async (on) => {
     if (!on && product.has_variants) {
-      if (!window.confirm(`Turn off variants? The ${rows.length} ${label.toLowerCase()}s are removed and their total stock stays on the product.`)) return;
+      if (!(await confirmDialog(`The ${rows.length} ${label.toLowerCase()}s are removed and their total stock stays on the product.`, { title: 'Turn off variants?', confirmLabel: 'Turn off', danger: true }))) return;
       setBusy(true);
       const result = await api('save_variants', { product_id: productId, has_variants: '0' });
       setBusy(false);
@@ -113,7 +114,7 @@ export default function VariantsEditor({ productId, product, media, onSaved, rol
   const save = async () => {
     const list = rows.filter((r) => r.name.trim() || r.id);
     if (!list.length) return setMessage({ ok: false, text: `Add at least one ${label.toLowerCase()}.` });
-    if (!product.has_variants && product.stock_qty && !window.confirm(`This product has ${product.stock_qty} in stock. That stock is replaced by the stock you enter per ${label.toLowerCase()}. Continue?`)) return;
+    if (!product.has_variants && product.stock_qty && !(await confirmDialog(`This product has ${product.stock_qty} in stock. That stock is replaced by the stock you enter per ${label.toLowerCase()}.`, { title: 'Replace the stock?', confirmLabel: 'Continue' }))) return;
     setBusy(true);
     setMessage(null);
     const result = await api('save_variants', {

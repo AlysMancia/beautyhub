@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { api, uploadFile } from '../lib/api';
+import { confirmDialog } from './Dialogs';
 
 /**
  * Logo picker for a brand or the store.
@@ -25,7 +26,7 @@ export default function LogoUploader({ src, upload, remove, data = {}, onChange,
   };
 
   const clear = async () => {
-    if (!window.confirm(`Remove this ${label}?`)) return;
+    if (!(await confirmDialog('You can upload a new one any time.', { title: `Remove this ${label}?`, confirmLabel: 'Remove', danger: true }))) return;
     const result = await api(remove, data);
     if (result.success) onChange(null);
     else setError(result.message);

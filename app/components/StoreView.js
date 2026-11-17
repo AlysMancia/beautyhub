@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from 'react';
 import SiteHeader from './SiteHeader';
 import { api, logout, storeHref } from '../lib/api';
 import { formatAddress } from '../lib/format';
+import HowToPay from './HowToPay';
+import NotificationBell from './NotificationBell';
 import StoreProducts from './StoreProducts';
 
 /** A seller's own page. Rendered at /store/{slug}, and at / for the default store. */
@@ -58,7 +60,12 @@ export default function StoreView({ slug }) {
 
   return (
     <main>
-      <SiteHeader title={store.name} tag={null}href={storeHref(store.slug)} logo={store.logo_path || undefined}>
+      <SiteHeader title={store.name} tag={null} href={storeHref(store.slug)} logo={store.logo_path || undefined}>
+        {store.show_explore && (
+          <Link href="/stores" className="btn login_btn explore_btn" title="Explore stores">
+            <i className="fa-regular fa-compass" /><span className="explore_label">Explore stores</span>
+          </Link>
+        )}
         {viewer.relation === 'guest' ? (
           <>
             <Link href={loginHref} className="btn login_btn">Login</Link>
@@ -66,6 +73,7 @@ export default function StoreView({ slug }) {
           </>
         ) : (
           <>
+            <NotificationBell />
             {viewer.relation === 'owner' && <Link href="/dashboard" className="btn login_btn">Dashboard</Link>}
             {viewer.relation !== 'owner' && <Link href="/account" className="btn login_btn">My stores</Link>}
             <button type="button" className="btn signup_btn" onClick={handleLogout}>Logout</button>
@@ -78,6 +86,11 @@ export default function StoreView({ slug }) {
           {store.logo_path && <img src={store.logo_path} alt="" className="store_logo" />}
           <h1>{store.name}</h1>
           <p className="store_owner">by {store.owner_name}</p>
+          {store.categories?.length > 0 && (
+            <div className="store_cats">
+              {store.categories.map((c) => <span key={c.id}><i className={`fa-solid ${c.icon}`} /> {c.name}</span>)}
+            </div>
+          )}
           {store.description && <p className="store_desc">{store.description}</p>}
           {formatAddress(store.location) && (
             <p className="store_address">
@@ -125,6 +138,12 @@ export default function StoreView({ slug }) {
       </section>
 
       <StoreProducts key={viewer.relation} store={store} viewer={viewer} />
+
+      {store.payment_methods?.length > 0 && (
+        <section className="store_pay">
+          <HowToPay methods={store.payment_methods} title="Ways to pay" />
+        </section>
+      )}
     </main>
   );
 }

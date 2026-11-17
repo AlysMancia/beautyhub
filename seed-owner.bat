@@ -1,5 +1,5 @@
 @echo off
-REM Creates/updates the default seller account from the OWNER_* settings in .env,
+REM Creates/updates the default seller (OWNER_*) and admin (ADMIN_*) accounts from .env,
 REM then (once) adds the default products from database\seeds\default_products.sql.
 REM setup.bat and start.bat run this automatically.
 cd /d "%~dp0"
@@ -12,6 +12,13 @@ if not exist ".env" (
 docker exec -i --env-file .env beautyhub-php php < scripts\seed-owner.php
 if errorlevel 1 (
     echo [ERROR] Could not create the default seller. Check the OWNER_* settings in .env.
+    exit /b 1
+)
+
+REM Default admin account (ADMIN_* in .env).
+docker exec -i --env-file .env beautyhub-php php < scripts\seed-admin.php
+if errorlevel 1 (
+    echo [ERROR] Could not create the admin account. Check the ADMIN_* settings in .env.
     exit /b 1
 )
 

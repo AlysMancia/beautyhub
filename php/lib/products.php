@@ -170,7 +170,7 @@ function get_product($conn) {
     if (!$rows) {
         fail('Product not found.', 404);
     }
-    respond(['success' => true, 'product' => $rows[0], 'media' => product_media_rows($conn, $rows[0]['id'])]
+    respond(['success' => true, 'product' => $rows[0], 'media' => product_media_rows($conn, $rows[0]['id']), 'qty_prices' => product_qty_prices($conn, $rows[0]['id'])]
         + catalog_lists($conn, $store['id']));
 }
 

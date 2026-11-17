@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../../lib/api';
+import { confirmDialog } from '../../../components/Dialogs';
 
 function TierRow({ role, index, count, defaultName, onChanged, onError }) {
   const [editing, setEditing] = useState(false);
@@ -20,9 +21,9 @@ function TierRow({ role, index, count, defaultName, onChanged, onError }) {
     if (await call('rename_role', { name: name.trim() })) setEditing(false);
   };
 
-  const remove = () => {
+  const remove = async () => {
     const note = role.member_count ? `\n\n${role.member_count} customer(s) will be moved to "${defaultName}".` : '';
-    if (window.confirm(`Delete the "${role.name}" tier? Its prices are deleted too.${note}`)) call('delete_role');
+    if (await confirmDialog(`Its prices are deleted too.${note}`, { title: `Delete the "${role.name}" tier?`, confirmLabel: 'Delete', danger: true })) call('delete_role');
   };
 
   return (
@@ -42,9 +43,14 @@ function TierRow({ role, index, count, defaultName, onChanged, onError }) {
             {role.name}
             {role.is_default && <span className="default-tag">DEFAULT</span>}
             {role.is_cost && <span className="default-tag cost">MY COST</span>}
+            {role.is_srp && <span className="default-tag srp">SRP</span>}
             <small className="muted">{role.member_count} customer{role.member_count === 1 ? '' : 's'}</small>
           </span>
           <span className="tier-actions">
+            <label className="srp-check" title="This tier's price is the SRP / retail price. Members of other tiers see it next to their own price.">
+              <input type="checkbox" checked={role.is_srp} disabled={role.is_srp} onChange={() => call('set_srp_role')} />
+              SRP
+            </label>
             <button className="icon-btn" title="Move up (better price)" disabled={index === 0} onClick={() => call('move_role', { direction: 'up' })}>
               <i className="fa-solid fa-arrow-up" />
             </button>

@@ -16,6 +16,7 @@ export default function CustomerProfilePage() {
     if (loading) return;
     if (!user) router.replace('/login');
     else if (user.account_type === 'seller') router.replace('/dashboard/profile');
+    else if (user.account_type === 'admin') router.replace('/admin');
   }, [loading, user, router]);
 
   if (loading || !user || user.account_type !== 'customer') {

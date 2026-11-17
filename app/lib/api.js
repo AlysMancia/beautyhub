@@ -62,6 +62,7 @@ export function storeHref(slug) {
 /** Where a user should land after login/signup. */
 export function homeFor(user) {
   if (!user) return '/login';
+  if (user.account_type === 'admin') return '/admin';
   return user.account_type === 'seller' ? '/dashboard' : '/account';
 }
 

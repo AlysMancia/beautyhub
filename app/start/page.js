@@ -25,6 +25,7 @@ export default function StartPage() {
   return (
     <main>
       <SiteHeader>
+        <Link href="/stores" className="btn login_btn explore_btn"><i className="fa-regular fa-compass" /><span className="explore_label">Explore stores</span></Link>
         <Link href="/login" className="btn login_btn">Login</Link>
         <Link href="/signup" className="btn signup_btn">Sign Up</Link>
       </SiteHeader>

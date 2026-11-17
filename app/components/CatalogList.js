@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { api } from '../lib/api';
+import { confirmDialog } from './Dialogs';
 
 /** One input: text, or a checkbox (`type: 'checkbox'`, value '1' / ''). */
 function Field({ f, value, onChange, autoFocus }) {
@@ -31,13 +32,13 @@ function Field({ f, value, onChange, autoFocus }) {
  * `leading(item, reload)`: optional element before the name (e.g. a brand logo).
  * `badges(item)`: optional element after the name.
  */
-export default function CatalogList({ title, hint, items, fields, label, saveFn, deleteFn, deleteNote, onChanged, onError, leading, badges }) {
+export default function CatalogList({ title, hint, items, fields, label, saveFn, deleteFn, deleteNote, onChanged, onError, leading, badges, extra = {}, countTitle = 'Products' }) {
   const toForm = (item) => Object.fromEntries(fields.map((f) => [f.key, f.type === 'checkbox' ? (item?.[f.key] ? '1' : '') : item?.[f.key] ?? '']));
   const [draft, setDraft] = useState(toForm(null));
   const [editing, setEditing] = useState(null); // { id, ...values }
 
   const save = async (values, id) => {
-    const result = await api(saveFn, { ...values, id: id ?? '' });
+    const result = await api(saveFn, { ...extra, ...values, id: id ?? '' });
     if (!result.success) {
       onError(result.message);
       return false;
@@ -54,7 +55,7 @@ export default function CatalogList({ title, hint, items, fields, label, saveFn,
 
   const remove = async (item) => {
     const note = item.product_count ? `\n\n${deleteNote(item.product_count)}` : '';
-    if (!window.confirm(`Delete ${label(item)}?${note}`)) return;
+    if (!(await confirmDialog(note.trim() || 'This cannot be undone.', { title: `Delete ${label(item)}?`, confirmLabel: 'Delete', danger: true }))) return;
     const result = await api(deleteFn, { id: item.id });
     if (!result.success) onError(result.message);
     onChanged();
@@ -97,7 +98,7 @@ export default function CatalogList({ title, hint, items, fields, label, saveFn,
               <span className="role-name">
                 {label(item)} {badges?.(item)}
               </span>
-              <span className="count" title="Products">{item.product_count}</span>
+              <span className="count" title={countTitle}>{item.product_count}</span>
               <button className="icon-btn" title="Edit" onClick={() => setEditing({ id: item.id, ...toForm(item) })}>
                 <i className="fa-solid fa-pen" />
               </button>

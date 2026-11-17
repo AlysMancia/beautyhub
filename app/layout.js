@@ -1,6 +1,7 @@
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './globals.css';
 import './roles.css';
+import { DialogHost } from './components/Dialogs';
 
 export const metadata = {
   title: 'InVoice',
@@ -25,7 +26,10 @@ export default function RootLayout({ children }) {
           referrerPolicy="no-referrer"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <DialogHost />
+      </body>
     </html>
   );
 }

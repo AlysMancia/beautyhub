@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { api, uploadFile } from '../lib/api';
+import { confirmDialog } from './Dialogs';
 
 const IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp';
 const VIDEO_ACCEPT = 'video/mp4,video/webm,video/quicktime';
@@ -42,7 +43,7 @@ export default function MediaManager({ productId, media, onChange, onSelect, sel
   };
 
   const act = async (fn, m, confirmText) => {
-    if (confirmText && !window.confirm(confirmText)) return;
+    if (confirmText && !(await confirmDialog(confirmText, { confirmLabel: 'Yes, continue', danger: /delete|remove/i.test(confirmText) }))) return;
     const result = await api(fn, { id: m.id });
     if (result.success) onChange(result.media);
     else setError(result.message);

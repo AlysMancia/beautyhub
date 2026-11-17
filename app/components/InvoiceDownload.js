@@ -12,10 +12,14 @@ export default function InvoiceDownload({ targetId, fileName, className = 'dash-
   const capture = async () => {
     const el = document.getElementById(targetId);
     const html2canvas = (await import('html2canvas')).default;
+    // Same desktop-size invoice on any device (phones included).
     el.classList.add('capturing');
+    const prevWidth = el.style.width;
+    el.style.width = '800px';
     try {
-      return await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+      return await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false, windowWidth: 1280 });
     } finally {
+      el.style.width = prevWidth;
       el.classList.remove('capturing');
     }
   };

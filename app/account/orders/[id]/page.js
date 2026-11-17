@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import InvoiceDownload from '../../../components/InvoiceDownload';
+import InvoicePayments from '../../../components/InvoicePayments';
+import NotificationBell from '../../../components/NotificationBell';
 import InvoiceView from '../../../components/InvoiceView';
 import SiteHeader from '../../../components/SiteHeader';
 import { api, storeHref, useSession } from '../../../lib/api';
@@ -27,7 +29,8 @@ export default function CustomerOrderPage() {
   return (
     <main>
       <SiteHeader>
-        <Link href="/account" className="btn login_btn">My stores &amp; orders</Link>
+        <NotificationBell />
+        <Link href="/account" className="btn login_btn">My orders</Link>
       </SiteHeader>
       <div className="page_wrap">
         {error && <p className="auth_error">{error}</p>}
@@ -54,6 +57,11 @@ export default function CustomerOrderPage() {
               </p>
             )}
             <InvoiceView invoice={invoice} />
+            {['pending', 'confirmed'].includes(invoice.status) && (
+              <div style={{ marginTop: 14 }}>
+                <InvoicePayments invoice={invoice} onChange={setInvoice} />
+              </div>
+            )}
           </>
         )}
       </div>

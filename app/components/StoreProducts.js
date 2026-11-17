@@ -3,9 +3,11 @@
 import SearchSelect from './SearchSelect';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import HowToPay from './HowToPay';
 import Pager from './Pager';
 import { api } from '../lib/api';
 import { money, promoLabel } from '../lib/format';
+import { nextStep, priceAtQty } from '../lib/invoice';
 import { useServerList } from '../lib/useServerList';
 
 /**
@@ -37,31 +39,56 @@ function useCart(slug) {
 
 const unitPrice = (p) => p.promo_price ?? p.price;
 
-function QtyStepper({ value, onChange, label, small }) {
+function QtyStepper({ value, onChange, label, small, max }) {
+  const atMax = max != null && value >= max;
   return (
     <div className={`qty_stepper${small ? ' small' : ''}`}>
       <button type="button" onClick={() => onChange(value - 1)} aria-label="One less">−</button>
       <input inputMode="numeric" value={value} onChange={(e) => onChange(Number(e.target.value.replace(/\D/g, '')) || 0)} aria-label={label} />
-      <button type="button" onClick={() => onChange(value + 1)} aria-label="One more">+</button>
+      <button type="button" onClick={() => onChange(value + 1)} aria-label="One more" disabled={atMax} title={atMax ? `Only ${max} in stock` : undefined}>+</button>
     </div>
   );
 }
 
-function PriceLine({ p }) {
+/** Pieces left to order: the variant's stock, else the product's. */
+const stockOf = (p, variant) => (variant ? variant.stock ?? (variant.in_stock ? 9999 : 0) : p.stock ?? (p.in_stock === false ? 0 : 9999));
+/** A product with variants is out of stock when every variant is. */
+const soldOut = (p) => (p.has_variants ? p.variants.length > 0 && p.variants.every((v) => !v.in_stock) : p.in_stock === false);
+
+/**
+ * Price for this customer. Members of a non-retail tier also see the SRP
+ * (retail price) and what they save; "buy more, pay less" steps are listed.
+ */
+function PriceLine({ p, tier, price = unitPrice(p), srp = p.srp }) {
+  const save = srp && price && Number(srp) > Number(price) ? Math.round((1 - Number(price) / Number(srp)) * 100) : 0;
   return (
-    <div className="p_price">
-      {p.promo_price ? (
-        <>
-          <span className="p_now">{money(p.promo_price)}</span>
-          {p.price && <span className="p_was">{money(p.price)}</span>}
-        </>
-      ) : p.price ? (
-        <span className="p_now">{money(p.price)}</span>
-      ) : (
-        <span className="p_uom">Ask for price</span>
+    <>
+      <div className="p_price">
+        {p.promo_price && price === unitPrice(p) ? (
+          <>
+            <span className="p_now">{money(p.promo_price)}</span>
+            {p.price && <span className="p_was">{money(p.price)}</span>}
+          </>
+        ) : price ? (
+          <span className="p_now">{money(price)}</span>
+        ) : (
+          <span className="p_uom">Ask for price</span>
+        )}
+        {p.size && price && <span className="p_uom">/ {p.size}</span>}
+      </div>
+      {srp && price && (
+        <div className="p_srp">
+          {tier && <span className="p_tier">{tier} price</span>}
+          <span>SRP <s>{money(srp)}</s></span>
+          {save > 0 && <span className="p_save">save {save}%</span>}
+        </div>
       )}
-      {p.size && (p.price || p.promo_price) && <span className="p_uom">/ {p.size}</span>}
-    </div>
+      {p.qty_prices?.length > 0 && (
+        <div className="p_steps" title="Buy more, pay less">
+          {p.qty_prices.map((q) => <span key={q.min_qty}>{q.min_qty}+ <strong>{money(q.price)}</strong></span>)}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -81,15 +108,19 @@ export default function StoreProducts({ store, viewer }) {
   const setQty = (p, qty, variant = null) => {
     const key = cartKey(p, variant);
     const next = { ...cart };
-    if (qty > 0) {
+    const max = stockOf(p, variant);
+    if (qty > 0 && max > 0) {
       next[key] = {
-        qty: Math.min(qty, 9999),
+        qty: Math.min(qty, max),
+        max,
         product_id: p.id,
         variant_id: variant?.id ?? null,
         variant_name: variant?.name ?? null,
         name: p.name,
         brand: p.brand,
         price: variant?.price != null ? Number(variant.price) : unitPrice(p),
+        product_price: unitPrice(p) == null ? null : Number(unitPrice(p)),
+        qty_prices: p.qty_prices ?? [],
         uom: p.size,
       };
     } else {
@@ -100,11 +131,20 @@ export default function StoreProducts({ store, viewer }) {
   /** Change the quantity of a line already in the cart. */
   const setLineQty = (key, qty) => {
     const next = { ...cart };
-    if (qty > 0) next[key] = { ...next[key], qty: Math.min(qty, 9999) };
+    if (qty > 0) next[key] = { ...next[key], qty: Math.min(qty, next[key].max ?? 9999) };
     else delete next[key];
     setCart(next);
   };
-  const cartLines = Object.entries(cart).map(([key, c]) => ({ key, product_id: c.product_id ?? Number(key), ...c }));
+  // Quantity prices: the product's total in the cart (all variants) decides the step.
+  const rawLines = Object.entries(cart).map(([key, c]) => ({ key, product_id: c.product_id ?? Number(key), ...c }));
+  const productQty = {};
+  rawLines.forEach((l) => { productQty[l.product_id] = (productQty[l.product_id] ?? 0) + l.qty; });
+  const cartLines = rawLines.map((l) => {
+    const follows = l.qty_prices?.length && (!l.variant_id || Number(l.price) === Number(l.product_price));
+    const each = follows ? priceAtQty(l.price, l.qty_prices, productQty[l.product_id]) : Number(l.price);
+    const next = follows ? nextStep(l.qty_prices, productQty[l.product_id]) : null;
+    return { ...l, base: Number(l.price), price: each, next, productQty: productQty[l.product_id] };
+  });
   const cartCount = cartLines.reduce((s, l) => s + l.qty, 0);
   const cartTotal = cartLines.reduce((s, l) => s + l.qty * Number(l.price || 0), 0);
 
@@ -173,7 +213,7 @@ export default function StoreProducts({ store, viewer }) {
                     {p.brand}
                   </span>
                   <button type="button" className="p_name" onClick={() => setOpenProduct(p)}>{p.name}</button>
-                  <PriceLine p={p} />
+                  <PriceLine p={p} tier={canOrder ? viewer.role : null} />
                   {p.promo_type && <span className="p_promo">Promo {promoLabel(p.promo_type, p.promo_until)}</span>}
                   {p.has_variants && p.variants.length > 0 && (
                     <span className="p_variants">
@@ -185,13 +225,16 @@ export default function StoreProducts({ store, viewer }) {
                       <small>{p.variants.length} {(p.variant_label || 'option').toLowerCase()}s</small>
                     </span>
                   )}
-                  {canOrder && unitPrice(p) &&
+                  {canOrder && unitPrice(p) && soldOut(p) && (
+                    <button type="button" className="btn btn-sm add_btn soldout" disabled>Out of stock</button>
+                  )}
+                  {canOrder && unitPrice(p) && !soldOut(p) &&
                     (p.has_variants ? (
                       <button type="button" className="btn btn-primary btn-sm add_btn" onClick={() => setOpenProduct(p)}>
                         Choose {(p.variant_label || 'option').toLowerCase()}
                       </button>
                     ) : cart[p.id] ? (
-                      <QtyStepper value={cart[p.id].qty} onChange={(n) => setQty(p, n)} label={`Quantity of ${p.name}`} />
+                      <QtyStepper value={cart[p.id].qty} max={stockOf(p)} onChange={(n) => setQty(p, n)} label={`Quantity of ${p.name}`} />
                     ) : (
                       <button type="button" className="btn btn-primary btn-sm add_btn" onClick={() => setQty(p, 1)}>Add to order</button>
                     ))}
@@ -223,6 +266,7 @@ export default function StoreProducts({ store, viewer }) {
       {openProduct && (
         <ProductModal
           store={store}
+          tier={canOrder ? viewer.role : null}
           summary={openProduct}
           canOrder={canOrder}
           cart={cart}
@@ -236,7 +280,7 @@ export default function StoreProducts({ store, viewer }) {
 }
 
 /** Product details: photo gallery, videos, price, add to order. */
-function ProductModal({ store, summary, canOrder, cart, cartKey, setQty, onClose }) {
+function ProductModal({ store, tier, summary, canOrder, cart, cartKey, setQty, onClose }) {
   const [product, setProduct] = useState(null);
   const [active, setActive] = useState(0);
   const [variantId, setVariantId] = useState(null);
@@ -289,12 +333,9 @@ function ProductModal({ store, summary, canOrder, cart, cartKey, setQty, onClose
           <h2>{p.name}</h2>
           <p className="price_note">{[p.category, p.size].filter(Boolean).join(' · ')}</p>
           {variant?.price != null && Number(variant.price) !== Number(unitPrice(p)) ? (
-            <div className="p_price">
-              <span className="p_now">{money(variant.price)}</span>
-              {p.size && <span className="p_uom">/ {p.size}</span>}
-            </div>
+            <PriceLine p={{ ...p, qty_prices: [] }} tier={tier} price={variant.price} srp={variant.srp} />
           ) : (
-            <PriceLine p={p} />
+            <PriceLine p={p} tier={tier} />
           )}
           {p.promo_type && <span className="p_promo">Promo {promoLabel(p.promo_type, p.promo_until)}</span>}
           {p.description && <p className="pm_desc">{p.description}</p>}
@@ -320,16 +361,26 @@ function ProductModal({ store, summary, canOrder, cart, cartKey, setQty, onClose
                   </button>
                 ))}
               </div>
-              {variant && !variant.in_stock && <small className="price_note">Out of stock — you can still order; the seller will confirm.</small>}
+              {variant && !variant.in_stock && <small className="price_note soldout_note">This one is out of stock.</small>}
             </div>
           )}
           {canOrder && unitPrice(p) && (
             <div style={{ marginTop: 12 }}>
               {inCart ? (
-                <QtyStepper value={inCart} onChange={(n) => setQty(p, n, variant)} label={`Quantity of ${p.name}`} />
+                <>
+                  <QtyStepper value={inCart} max={stockOf(p, variant)} onChange={(n) => setQty(p, n, variant)} label={`Quantity of ${p.name}`} />
+                  {inCart >= stockOf(p, variant) && <small className="price_note">Only {stockOf(p, variant)} in stock.</small>}
+                </>
               ) : (
-                <button type="button" className="btn btn-primary add_btn" disabled={needsChoice} onClick={() => setQty(p, 1, variant)}>
-                  {needsChoice ? `Choose a ${(p.variant_label || 'option').toLowerCase()} first` : 'Add to order'}
+                <button
+                  type="button"
+                  className="btn btn-primary add_btn"
+                  disabled={needsChoice || soldOut(p) || (!needsChoice && stockOf(p, variant) <= 0)}
+                  onClick={() => setQty(p, 1, variant)}
+                >
+                  {soldOut(p) || (!needsChoice && stockOf(p, variant) <= 0)
+                    ? 'Out of stock'
+                    : needsChoice ? `Choose a ${(p.variant_label || 'option').toLowerCase()} first` : 'Add to order'}
                 </button>
               )}
             </div>
@@ -382,6 +433,12 @@ function CartDrawer({ store, lines, total, setQty, onClose, onPlaced }) {
               adjust the final prices.
             </p>
             <Link href={`/account/orders/${placed.invoice_id}`} className="btn btn-primary">View my order</Link>
+            {store.payment_methods?.length > 0 && (
+              <div className="drawer_pay">
+                <HowToPay methods={store.payment_methods} title={`How to pay ${store.name}`} />
+                <p className="price_note">After paying, send your receipt from your order page so {store.name} can confirm it.</p>
+              </div>
+            )}
           </div>
         ) : lines.length === 0 ? (
           <div className="drawer_body"><p>Your order is empty.</p></div>
@@ -393,9 +450,16 @@ function CartDrawer({ store, lines, total, setQty, onClose, onPlaced }) {
                   <li key={l.key}>
                     <div>
                       <strong>{l.name}{l.variant_name && ` — ${l.variant_name}`}</strong>
-                      <small>{l.brand} · {money(l.price)}{l.uom ? ` / ${l.uom}` : ''}</small>
+                      <small>
+                        {l.brand} · {money(l.price)}{l.uom ? ` / ${l.uom}` : ''}
+                        {l.price < l.base && <span className="cart_qtyprice"> · qty price (was {money(l.base)})</span>}
+                      </small>
+                      {l.max != null && l.qty >= l.max && <small className="cart_nudge">Only {l.max} in stock</small>}
+                      {l.next && (
+                        <small className="cart_nudge">Add {l.next.min_qty - l.productQty} more to pay {money(l.next.price)} each</small>
+                      )}
                     </div>
-                    <QtyStepper small value={l.qty} onChange={(n) => setQty(l.key, n)} label={`Quantity of ${l.name}`} />
+                    <QtyStepper small value={l.qty} max={l.max} onChange={(n) => setQty(l.key, n)} label={`Quantity of ${l.name}`} />
                     <span className="line_amt">{money(l.qty * Number(l.price))}</span>
                   </li>
                 ))}
@@ -404,6 +468,12 @@ function CartDrawer({ store, lines, total, setQty, onClose, onPlaced }) {
               <input id="orderContact" className="form-control auth_input" value={contact} maxLength={160} onChange={(e) => setContact(e.target.value)} placeholder="09xx xxx xxxx" />
               <label className="auth_label" htmlFor="orderNotes" style={{ marginTop: 10 }}>Notes for the seller (optional)</label>
               <textarea id="orderNotes" className="form-control auth_input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Delivery or pickup details" />
+              {store.payment_methods?.length > 0 && (
+                <div className="drawer_pay">
+                  <HowToPay methods={store.payment_methods} title={`How to pay ${store.name}`} />
+                  <p className="price_note">You can pay once {store.name} confirms your order, then send your receipt from the order page.</p>
+                </div>
+              )}
             </div>
             <footer>
               <div className="drawer_total"><span>Estimated total</span><strong>{money(total)}</strong></div>

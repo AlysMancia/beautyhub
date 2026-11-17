@@ -57,11 +57,59 @@ function prices_for_role($conn, $store, array $productIds, $roleId) {
 function next_invoice_no($conn, $storeId) {
     // Lock the store row so two invoices can't get the same number.
     $conn->prepare('SELECT id FROM stores WHERE id = ? FOR UPDATE')->execute([$storeId]);
+    // Numbers of deleted invoices are never reused (the highest one is remembered).
     $stmt = $conn->prepare(
-        "SELECT COALESCE(MAX(CAST(substring(invoice_no FROM '[0-9]+$') AS INTEGER)), 0) + 1 FROM invoices WHERE store_id = ?"
+        "SELECT GREATEST(
+                    COALESCE(MAX(CAST(substring(invoice_no FROM '[0-9]+$') AS INTEGER)), 0),
+                    COALESCE((SELECT value::int FROM app_settings WHERE key = ?), 0)
+                ) + 1
+         FROM invoices WHERE store_id = ?"
     );
-    $stmt->execute([$storeId]);
+    $stmt->execute(["last_deleted_invoice:$storeId", $storeId]);
     return 'INV-' . str_pad((string) $stmt->fetchColumn(), 6, '0', STR_PAD_LEFT);
+}
+
+/**
+ * Deletes an invoice for good. A confirmed one puts its items back in stock
+ * first (the stock history keeps a "deleted" note). Payments and their
+ * receipts go with it. Inputs: id.
+ */
+function delete_invoice($conn) {
+    [$user, $store] = require_seller_store($conn);
+    $conn->beginTransaction();
+    $invoice = load_invoice($conn, input('id'), $store['id']);
+    if (!$invoice) {
+        $conn->rollBack();
+        fail('Invoice not found.', 404);
+    }
+    try {
+        if ($invoice['status'] === 'confirmed') {
+            foreach ($invoice['items'] as $it) {
+                if ($it['product_id']) {
+                    apply_stock_change($conn, $store['id'], $it['product_id'], $it['qty'], 'invoice_deleted', $user['id'], null,
+                        "{$invoice['invoice_no']} (deleted)", $it['variant_id'] ? (int) $it['variant_id'] : null);
+                }
+            }
+        }
+    } catch (ProductError $e) {
+        $conn->rollBack();
+        fail($e->getMessage());
+    }
+    // Earlier stock moves of this invoice keep their note, but no longer point to it.
+    $conn->prepare('UPDATE inventory_movements SET invoice_id = NULL WHERE invoice_id = ?')->execute([$invoice['id']]);
+    $number = (int) preg_replace('/\D/', '', $invoice['invoice_no']);
+    $conn->prepare(
+        "INSERT INTO app_settings (key, value) VALUES (?, ?)
+         ON CONFLICT (key) DO UPDATE SET value = GREATEST(app_settings.value::int, EXCLUDED.value::int)::text, updated_at = NOW()"
+    )->execute(["last_deleted_invoice:{$store['id']}", (string) $number]);
+    $conn->prepare('DELETE FROM invoices WHERE id = ?')->execute([$invoice['id']]);
+    $conn->commit();
+
+    foreach ($invoice['payments'] as $p) {
+        delete_upload($p['proof_path']);
+        delete_upload($p['proof_thumb']);
+    }
+    respond(['success' => true, 'restocked' => $invoice['status'] === 'confirmed']);
 }
 
 function load_invoice($conn, $invoiceId, $storeId = null, $customerId = null) {
@@ -101,6 +149,10 @@ function load_invoice($conn, $invoiceId, $storeId = null, $customerId = null) {
     foreach (['id', 'store_id', 'customer_user_id', 'role_id'] as $k) {
         $invoice[$k] = $invoice[$k] === null ? null : (int) $invoice[$k];
     }
+    $invoice['payments'] = invoice_payments($conn, $invoice['id']);
+    $invoice['balance'] = number_format(max(0, (float) $invoice['total'] - (float) $invoice['amount_paid']), 2, '.', '');
+    // How to pay: the store's active payment methods (with QR codes etc.).
+    $invoice['payment_methods'] = payment_methods($conn, $invoice['store_id'], true);
     return $invoice;
 }
 
@@ -127,6 +179,8 @@ function write_invoice_lines($conn, $invoiceId, array $lines, $discount) {
     $total = $subtotal - (float) $discount;
     $conn->prepare('UPDATE invoices SET subtotal = ?, discount = ?, total = ?, updated_at = NOW() WHERE id = ?')
         ->execute([number_format($subtotal, 2, '.', ''), $discount, number_format($total, 2, '.', ''), $invoiceId]);
+    // A new total changes the payment status (e.g. paid -> partial after adding an item).
+    recompute_payment($conn, $invoiceId);
 }
 
 /**
@@ -173,6 +227,7 @@ function build_lines($conn, $store, array $items, $roleId, $pricesFromRole) {
         }
         // Products with variants need one chosen (e.g. which shade).
         $variant = null;
+        $followsProduct = true; // false when a variant has its own special price
         if ($product['has_variants']) {
             $vid = (int) ($it['variant_id'] ?? 0);
             foreach ($variantsByProduct[$pid] ?? [] as $v) {
@@ -196,10 +251,27 @@ function build_lines($conn, $store, array $items, $roleId, $pricesFromRole) {
                         throw new ProductError("{$product['name']} – {$variant['name']} has no price yet. Please ask the seller.");
                     }
                     $unitPrice = number_format((float) $vp['price'], 2, '.', '');
+                    $followsProduct = $product['price'] !== null && (float) $vp['price'] === (float) $product['price'];
                 }
             }
         }
-        $lines[] = ['product' => $product, 'variant' => $variant, 'qty' => (int) $qty, 'unit_price' => $unitPrice];
+        $lines[] = ['product' => $product, 'variant' => $variant, 'qty' => (int) $qty, 'unit_price' => $unitPrice, 'follows_product' => $followsProduct];
+    }
+
+    // Quantity prices: the product's total on this order (all variants) decides the step.
+    if ($pricesFromRole) {
+        $breaks = qty_breaks($conn, $ids, (int) $roleId ?: default_role_id($conn, $store['id']));
+        $totals = [];
+        foreach ($lines as $l) {
+            $totals[$l['product']['id']] = ($totals[$l['product']['id']] ?? 0) + $l['qty'];
+        }
+        foreach ($lines as &$l) {
+            $pid = (int) $l['product']['id'];
+            if ($l['follows_product'] && isset($breaks[$pid])) {
+                $l['unit_price'] = price_at_qty($l['unit_price'], $breaks[$pid], $totals[$pid]);
+            }
+        }
+        unset($l);
     }
     return $lines;
 }
@@ -227,7 +299,76 @@ function stock_shortages($conn, $storeId, array $rows) {
     return $short;
 }
 
-/** Deducts stock for a confirmed invoice (per variant). Fails with `shortages` unless allow_oversell=1. */
+/** An invoice's quantities per product/variant: ["productId:variantId" => qty]. */
+function invoice_quantities(array $items) {
+    $qty = [];
+    foreach ($items as $it) {
+        if ($it['product_id']) {
+            $key = $it['product_id'] . ':' . ($it['variant_id'] ?: '');
+            $qty[$key] = ($qty[$key] ?? 0) + (int) $it['qty'];
+        }
+    }
+    return $qty;
+}
+
+/**
+ * After a confirmed invoice is edited: moves only the difference in stock
+ * (more of an item = taken out, less or removed = put back). Fails with
+ * `shortages` when stock would go below zero (never allowed).
+ */
+function apply_invoice_edit_stock($conn, $store, $userId, $invoiceId, $invoiceNo, array $before) {
+    $items = $conn->prepare('SELECT product_id, variant_id, qty FROM invoice_items WHERE invoice_id = ?');
+    $items->execute([$invoiceId]);
+    $after = invoice_quantities($items->fetchAll());
+
+    $changes = [];
+    foreach (array_unique(array_merge(array_keys($before), array_keys($after))) as $key) {
+        $diff = ($after[$key] ?? 0) - ($before[$key] ?? 0); // positive = more sold
+        if ($diff !== 0) {
+            [$productId, $variantId] = explode(':', $key);
+            $changes[] = ['product_id' => (int) $productId, 'variant_id' => $variantId === '' ? null : (int) $variantId, 'qty' => $diff];
+        }
+    }
+
+    $short = stock_shortages($conn, $store['id'], array_values(array_filter($changes, fn ($c) => $c['qty'] > 0)));
+    if ($short) {
+        $conn->rollBack();
+        respond([
+            'success' => false,
+            'code' => 'insufficient_stock',
+            'message' => short_stock_message($short),
+            'shortages' => $short,
+        ], 409);
+    }
+    foreach ($changes as $c) {
+        apply_stock_change($conn, $store['id'], $c['product_id'], -$c['qty'], 'invoice_edited', $userId, $invoiceId, $invoiceNo, $c['variant_id']);
+    }
+}
+
+/** "Not enough stock: X (only 2 left), Y (out of stock)." */
+function short_stock_message(array $short) {
+    $parts = array_map(fn ($s) => $s['stock'] <= 0 ? "{$s['name']} (out of stock)" : "{$s['name']} (only {$s['stock']} left, you asked for {$s['qty']})", $short);
+    return 'Not enough stock: ' . implode('; ', $parts) . '.';
+}
+
+/** Fails (ProductError) when the lines ask for more than is in stock. $lines as from build_lines(). */
+function assert_lines_in_stock($conn, $storeId, array $lines) {
+    $rows = [];
+    foreach ($lines as $l) {
+        $key = $l['product']['id'] . ':' . ($l['variant']['id'] ?? '');
+        $rows[$key] = [
+            'product_id' => (int) $l['product']['id'],
+            'variant_id' => isset($l['variant']['id']) ? (int) $l['variant']['id'] : null,
+            'qty' => ($rows[$key]['qty'] ?? 0) + $l['qty'],
+        ];
+    }
+    $short = stock_shortages($conn, $storeId, array_values($rows));
+    if ($short) {
+        throw new ProductError(short_stock_message($short));
+    }
+}
+
+/** Deducts stock for a confirmed invoice (per variant). Fails with `shortages` when there isn't enough stock. */
 function deduct_invoice_stock($conn, $store, $userId, $invoiceId, $invoiceNo) {
     $items = $conn->prepare(
         'SELECT product_id, variant_id, SUM(qty) AS qty FROM invoice_items
@@ -241,12 +382,12 @@ function deduct_invoice_stock($conn, $store, $userId, $invoiceId, $invoiceNo) {
     ], $items->fetchAll());
 
     $short = stock_shortages($conn, $store['id'], $rows);
-    if ($short && input('allow_oversell') !== '1') {
+    if ($short) {
         $conn->rollBack();
         respond([
             'success' => false,
             'code' => 'insufficient_stock',
-            'message' => 'Not enough stock for some items.',
+            'message' => short_stock_message($short),
             'shortages' => $short,
         ], 409);
     }
@@ -274,7 +415,10 @@ function role_name($conn, $storeId, $roleId) {
 
 /* ---------------- seller ---------------- */
 
-/** One page of invoices. Inputs: page, per_page, status, q (number or customer). */
+/**
+ * One page of invoices. Inputs: page, per_page, status, q (number or customer),
+ * payment (unpaid|partial|paid|overpaid|due = unpaid or partial), release (open|released).
+ */
 function list_invoices($conn) {
     [, $store] = require_seller_store($conn);
     [$page, $perPage] = page_params(25, 100);
@@ -285,6 +429,17 @@ function list_invoices($conn) {
         $where .= ' AND status = ?';
         $params[] = $status;
     }
+    $payment = input('payment');
+    if ($payment === 'due') {
+        $where .= " AND payment_status IN ('unpaid', 'partial') AND status IN ('pending', 'confirmed')";
+    } elseif (in_array($payment, ['unpaid', 'partial', 'paid', 'overpaid'], true)) {
+        $where .= ' AND payment_status = ?';
+        $params[] = $payment;
+    }
+    if (in_array(input('release'), ['open', 'released'], true)) {
+        $where .= " AND release_status = ? AND status = 'confirmed'";
+        $params[] = input('release');
+    }
     [$searchSql, $searchParams] = search_sql(input('q'), ['invoice_no', 'customer_name', 'customer_contact']);
     $where .= $searchSql;
     $params = array_merge($params, $searchParams);
@@ -294,7 +449,9 @@ function list_invoices($conn) {
 
     $stmt = $conn->prepare(
         "SELECT id, invoice_no, source, status, customer_name, customer_user_id, role_name, total, created_at, confirmed_at,
-                (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = invoices.id) AS line_count
+                amount_paid, payment_status, release_status, released_to,
+                (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = invoices.id) AS line_count,
+                (SELECT COUNT(*) FROM invoice_payments WHERE invoice_id = invoices.id AND status = 'pending') AS payments_to_check
          FROM invoices WHERE $where
          ORDER BY (status = 'pending') DESC, created_at DESC
          LIMIT ? OFFSET ?"
@@ -335,7 +492,7 @@ function get_invoice($conn) {
  * Create (confirmed right away) or edit a pending customer order.
  * Fields: id?, customer_user_id? | customer_name, customer_contact, role_id,
  *         items (JSON [{product_id, qty, unit_price}]), discount, notes,
- *         approve=1 (pending only), allow_oversell=1
+ *         approve=1 (pending only). Items can't go on an invoice for more than the stock you have.
  */
 function save_invoice($conn) {
     [$user, $store] = require_seller_store($conn);
@@ -350,8 +507,8 @@ function save_invoice($conn) {
             if (!$existing) {
                 throw new ProductError('Invoice not found.');
             }
-            if ($existing['status'] !== 'pending') {
-                throw new ProductError('Only pending orders can be edited. Cancel this invoice and make a new one instead.');
+            if (!in_array($existing['status'], ['pending', 'confirmed'], true)) {
+                throw new ProductError('Rejected or cancelled invoices cannot be edited.');
             }
         }
 
@@ -384,12 +541,20 @@ function save_invoice($conn) {
         $notes = input('notes') ?: null;
 
         if ($existing) {
+            // A walk-in name on a seller-made invoice can be corrected too.
+            $nameSql = $customerUserId ? '' : 'customer_name = ?, ';
             $conn->prepare(
-                'UPDATE invoices SET customer_contact = ?, role_id = ?, role_name = ?, notes = ?, updated_at = NOW() WHERE id = ?'
-            )->execute([$contact, $roleId, $roleName, $notes, $id]);
+                "UPDATE invoices SET {$nameSql}customer_contact = ?, role_id = ?, role_name = ?, notes = ?, updated_at = NOW() WHERE id = ?"
+            )->execute([...($customerUserId ? [] : [$customerName]), $contact, $roleId, $roleName, $notes, $id]);
             write_invoice_lines($conn, $id, $lines, $discount);
-            $confirm = input('approve') === '1';
             $invoiceNo = $existing['invoice_no'];
+            if ($existing['status'] === 'confirmed') {
+                // Already took stock: only move what changed. Payment status follows the new total.
+                apply_invoice_edit_stock($conn, $store, $user['id'], $id, $invoiceNo, invoice_quantities($existing['items']));
+                $confirm = false;
+            } else {
+                $confirm = input('approve') === '1';
+            }
         } else {
             $invoiceNo = next_invoice_no($conn, $store['id']);
             $stmt = $conn->prepare(
@@ -413,7 +578,18 @@ function save_invoice($conn) {
     }
     $conn->commit();
 
+    // Approving a customer's order from the editor.
+    if ($existing && $existing['status'] === 'pending' && $confirm) {
+        notify_order_confirmed($conn, $existing, $store);
+    }
     respond(['success' => true, 'invoice' => load_invoice($conn, $id, $store['id'])]);
+}
+
+/** Tells the customer their order was confirmed (with the final total). */
+function notify_order_confirmed($conn, $invoice, $store) {
+    $fresh = load_invoice($conn, $invoice['id'], $store['id']);
+    notify($conn, $fresh['customer_user_id'], 'order_confirmed', "{$store['name']} confirmed order {$fresh['invoice_no']}",
+        'Total ' . '₱' . number_format((float) $fresh['total'], 2) . '. You can pay now — see how to pay on your order.', "/account/orders/{$fresh['id']}");
 }
 
 function approve_invoice($conn) {
@@ -428,6 +604,7 @@ function approve_invoice($conn) {
     $conn->prepare("UPDATE invoices SET status = 'confirmed', confirmed_at = NOW(), updated_at = NOW() WHERE id = ?")
         ->execute([$invoice['id']]);
     $conn->commit();
+    notify_order_confirmed($conn, $invoice, $store);
     respond(['success' => true]);
 }
 
@@ -443,6 +620,9 @@ function reject_invoice($conn) {
     if ($stmt->rowCount() === 0) {
         fail('Only pending orders can be rejected.');
     }
+    $invoice = load_invoice($conn, input('id'), $store['id']);
+    notify($conn, $invoice['customer_user_id'], 'order_rejected', "{$store['name']} could not accept order {$invoice['invoice_no']}",
+        $reason !== '' ? "Reason: $reason" : null, "/account/orders/{$invoice['id']}");
     respond(['success' => true]);
 }
 
@@ -574,6 +754,8 @@ function place_order($conn) {
     try {
         $items = array_map(fn ($it) => ['product_id' => $it['product_id'] ?? 0, 'variant_id' => $it['variant_id'] ?? 0, 'qty' => $it['qty'] ?? 0], json_input('items'));
         $lines = build_lines($conn, $store, $items, $member['role_id'], true);
+        // Customers can only order what is in stock.
+        assert_lines_in_stock($conn, $store['id'], $lines);
         $invoiceNo = next_invoice_no($conn, $store['id']);
         $stmt = $conn->prepare(
             "INSERT INTO invoices (store_id, invoice_no, source, status, customer_user_id, customer_name, customer_contact,
@@ -594,6 +776,10 @@ function place_order($conn) {
 
     $total = $conn->prepare('SELECT total FROM invoices WHERE id = ?');
     $total->execute([$id]);
+    $orderTotal = $conn->prepare('SELECT total FROM invoices WHERE id = ?');
+    $orderTotal->execute([$id]);
+    notify_store_owner($conn, $store['id'], 'order_placed', "New order {$invoiceNo} from {$user['name']}",
+        '₱' . number_format((float) $orderTotal->fetchColumn(), 2) . ' · waiting for your approval', "/dashboard/invoices/$id");
     broadcast_event($store['id'], 'order_placed', [
         'name' => $user['name'], 'invoice_no' => $invoiceNo, 'invoice_id' => $id, 'total' => $total->fetchColumn(),
     ]);
@@ -603,7 +789,7 @@ function place_order($conn) {
 function my_orders($conn) {
     $user = require_user($conn, 'customer');
     $stmt = $conn->prepare(
-        'SELECT i.id, i.invoice_no, i.status, i.total, i.created_at, i.confirmed_at, s.name AS store_name, s.slug AS store_slug,
+        'SELECT i.id, i.invoice_no, i.status, i.total, i.amount_paid, i.payment_status, i.release_status, i.released_to, i.created_at, i.confirmed_at, s.name AS store_name, s.slug AS store_slug, s.logo_path AS store_logo,
                 (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = i.id) AS line_count
          FROM invoices i JOIN stores s ON s.id = i.store_id
          WHERE i.customer_user_id = ? ORDER BY i.created_at DESC LIMIT 200'

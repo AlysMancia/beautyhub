@@ -1,10 +1,76 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import LogoUploader from '../../../components/LogoUploader';
 import StoreLinkCard from '../../../components/StoreLinkCard';
 import { api } from '../../../lib/api';
 import { useSeller } from '../../SellerContext';
+
+/** Store categories (for Explore stores) + whether the Explore button shows on your page. */
+function DirectoryCard({ store, reload }) {
+  const [categories, setCategories] = useState(null);
+  const [mine, setMine] = useState([]);
+  const [msg, setMsg] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api('list_store_categories').then((d) => {
+      if (!d.success) return setError(d.message);
+      setCategories(d.categories);
+      setMine(d.mine ?? []);
+    });
+  }, []);
+
+  const toggle = async (id) => {
+    const next = mine.includes(id) ? mine.filter((x) => x !== id) : [...mine, id];
+    if (next.length > 5) return setError('Choose up to 5 categories.');
+    setError('');
+    setMine(next);
+    const d = await api('set_store_categories', { ids: JSON.stringify(next) });
+    if (!d.success) {
+      setError(d.message);
+      setMine(mine);
+    } else setMsg('Saved.');
+  };
+
+  const setExplore = async (on) => {
+    setError('');
+    const d = await api('update_store', { name: store.name, description: store.description ?? '', show_explore: on ? '1' : '0' });
+    if (!d.success) return setError(d.message);
+    setMsg('Saved.');
+    reload();
+  };
+
+  return (
+    <article className="card directory-card">
+      <h3>Explore stores</h3>
+      <p className="muted" style={{ marginTop: 0 }}>
+        Customers can find your shop on the <a href="/stores" target="_blank" rel="noreferrer">Explore stores</a> page. Pick what you sell so they can filter for it.
+      </p>
+      <strong className="dir-label">Store categories <small className="muted">(up to 5)</small></strong>
+      {!categories ? (
+        <p className="muted">Loading…</p>
+      ) : (
+        <div className="dir-chips">
+          {categories.map((c) => (
+            <button key={c.id} type="button" className={mine.includes(c.id) ? 'on' : ''} onClick={() => toggle(c.id)} aria-pressed={mine.includes(c.id)}>
+              <i className={`fa-solid ${mine.includes(c.id) ? 'fa-check' : c.icon}`} /> {c.name}
+            </button>
+          ))}
+        </div>
+      )}
+      <label className="check" style={{ marginTop: 14 }}>
+        <input type="checkbox" checked={store.show_explore !== false} onChange={(e) => setExplore(e.target.checked)} />
+        Show the “Explore stores” button on my store page
+      </label>
+      <small className="muted">Turn it off to keep visitors on your page. Your shop is still listed on Explore stores.</small>
+      <div className="dir-foot">
+        {msg && <span className="form-ok" style={{ margin: 0 }}>{msg}</span>}
+        {error && <span className="dash-error" style={{ margin: 0 }}>{error}</span>}
+      </div>
+    </article>
+  );
+}
 
 export default function SettingsPage() {
   const { store, reload } = useSeller();
@@ -67,6 +133,8 @@ export default function SettingsPage() {
           </div>
         </div>
       </form>
+
+      <DirectoryCard store={store} reload={reload} />
     </>
   );
 }

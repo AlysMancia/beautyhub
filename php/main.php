@@ -52,6 +52,12 @@ require __DIR__ . '/lib/listings.php';
 require __DIR__ . '/lib/remember.php';
 require __DIR__ . '/lib/customers.php';
 require __DIR__ . '/lib/variants.php';
+require __DIR__ . '/lib/payments.php';
+require __DIR__ . '/lib/qty_prices.php';
+require __DIR__ . '/lib/ledger.php';
+require __DIR__ . '/lib/notifications.php';
+require __DIR__ . '/lib/stores.php';
+require __DIR__ . '/lib/admin.php';
 
 $routes = [
     // auth
@@ -105,12 +111,51 @@ $routes = [
     'place_order'     => 'place_order',
     'my_orders'       => 'my_orders',
     'set_cost_role'   => 'set_cost_role',
+    'set_srp_role'    => 'set_srp_role',
+    'save_qty_prices' => 'save_qty_prices',
+    'mark_paid'       => 'mark_paid',
+    'delete_invoice'  => 'delete_invoice',
+    'list_notifications'      => 'list_notifications',
+    // store directory
+    'list_stores'             => 'list_stores',
+    'list_store_categories'   => 'list_store_categories',
+    'set_store_categories'    => 'set_store_categories',
+    'admin_save_store_category'   => 'admin_save_store_category',
+    'admin_delete_store_category' => 'admin_delete_store_category',
+    'notification_count'      => 'notification_count',
+    'mark_notifications_read' => 'mark_notifications_read',
+    // expenses + other income
+    'list_ledger'            => 'list_ledger',
+    'save_ledger_entry'      => 'save_ledger_entry',
+    'delete_ledger_entry'    => 'delete_ledger_entry',
+    'list_ledger_categories' => 'list_ledger_categories',
+    'save_ledger_category'   => 'save_ledger_category',
+    'delete_ledger_category' => 'delete_ledger_category',
     'move_role'       => 'move_role',
     'add_customer'    => 'add_customer',
     'update_customer' => 'update_customer',
     'link_customer_account' => 'link_customer_account',
     'save_variants'   => 'save_variants',
     'price_list'      => 'price_list',
+    // payment methods + invoice payments + release
+    'list_payment_methods'      => 'list_payment_methods',
+    'save_payment_method'       => 'save_payment_method',
+    'delete_payment_method'     => 'delete_payment_method',
+    'upload_payment_method_file'=> 'upload_payment_method_file',
+    'delete_payment_method_file'=> 'delete_payment_method_file',
+    'add_payment'     => 'add_payment',
+    'submit_payment'  => 'submit_payment',
+    'review_payment'  => 'review_payment',
+    'delete_payment'  => 'delete_payment',
+    'set_release'     => 'set_release',
+    // admin
+    'admin_overview'    => 'admin_overview',
+    'admin_list_users'  => 'admin_list_users',
+    'admin_update_user' => 'admin_update_user',
+    'admin_set_password'=> 'admin_set_password',
+    'admin_set_active'  => 'admin_set_active',
+    'admin_create_user' => 'admin_create_user',
+    'admin_delete_user' => 'admin_delete_user',
     'quick_update_product' => 'quick_update_product',
     // photos, videos, logos (lib/media.php)
     'get_product_media'    => 'get_product_media',
@@ -198,9 +243,14 @@ function current_user($conn) {
     if (empty($_SESSION['user_id'])) {
         return null;
     }
-    $stmt = $conn->prepare('SELECT id, name, username, email, phone, code, account_type FROM users WHERE id = ?');
+    $stmt = $conn->prepare('SELECT id, name, username, email, phone, code, account_type, is_active FROM users WHERE id = ?');
     $stmt->execute([(int) $_SESSION['user_id']]);
     $user = $stmt->fetch();
+    if ($user && !$user['is_active']) {
+        // Turned off by an admin: log out straight away.
+        $_SESSION = [];
+        return null;
+    }
     return $user ?: null;
 }
 
@@ -228,8 +278,9 @@ function require_seller_store($conn) {
     return [$user, $store];
 }
 
+/** A store by its link. Stores whose seller account is turned off are hidden. */
 function find_store_by_slug($conn, $slug) {
-    $stmt = $conn->prepare('SELECT * FROM stores WHERE slug = ?');
+    $stmt = $conn->prepare('SELECT s.* FROM stores s JOIN users u ON u.id = s.owner_id WHERE s.slug = ? AND u.is_active');
     $stmt->execute([strtolower($slug)]);
     return $stmt->fetch() ?: null;
 }
@@ -409,6 +460,8 @@ function create_user($conn) {
 
     if ($joinStore) {
         broadcast_event($joinStore['id'], 'member_joined', ['name' => trim("$firstName $lastName")]);
+        notify_store_owner($conn, $joinStore['id'], 'member_joined', 'New customer: ' . trim("$firstName $lastName"),
+            'Signed up with your store link.', '/dashboard/customers');
     }
 
     // Log the new account in straight away.
@@ -433,7 +486,7 @@ function login_user($conn) {
     }
 
     $stmt = $conn->prepare(
-        'SELECT id, name, password, account_type FROM users WHERE LOWER(email) = ? OR LOWER(username) = ? LIMIT 1'
+        'SELECT id, name, password, account_type, is_active FROM users WHERE LOWER(email) = ? OR LOWER(username) = ? LIMIT 1'
     );
     $stmt->execute([$lookup, $lookup]);
     $user = $stmt->fetch();
@@ -441,6 +494,9 @@ function login_user($conn) {
     // Customers added by a seller have no password until they sign up themselves.
     if (!$user || $user['password'] === null || !password_verify($password, $user['password'])) {
         fail('Invalid email or password.');
+    }
+    if (!$user['is_active']) {
+        fail('This account has been turned off. Please contact the site admin.');
     }
 
     session_regenerate_id(true);
@@ -495,6 +551,7 @@ function me($conn) {
                 'name' => $row['name'],
                 'description' => $row['description'],
                 'logo_path' => $row['logo_path'],
+                'show_explore' => (bool) $row['show_explore'],
                 'location' => store_location($row),
             ];
             $store['id'] = (int) $store['id'];
@@ -503,7 +560,7 @@ function me($conn) {
         $result['store'] = $store ?: null;
     } else {
         $stmt = $conn->prepare(
-            'SELECT s.slug, s.name, r.name AS role, m.created_at AS joined_at
+            'SELECT s.slug, s.name, s.logo_path, r.name AS role, m.created_at AS joined_at
              FROM store_members m
              JOIN stores s ON s.id = m.store_id
              LEFT JOIN store_roles r ON r.id = m.role_id
@@ -555,6 +612,9 @@ function get_store($conn) {
             'owner_name' => $owner->fetchColumn(),
             'logo_path' => $store['logo_path'],
             'location' => store_location($store),
+            'payment_methods' => payment_methods($conn, $store['id'], true),
+            'categories' => categories_for_stores($conn, [$store['id']])[$store['id']] ?? [],
+            'show_explore' => (bool) $store['show_explore'],
         ],
         'viewer' => $viewer,
     ] + $list);
@@ -613,6 +673,7 @@ function join_store($conn) {
 
     if (add_member($conn, $store['id'], $user['id'])) {
         broadcast_event($store['id'], 'member_joined', ['name' => $user['name']]);
+        notify_store_owner($conn, $store['id'], 'member_joined', "New customer: {$user['name']}", 'Joined your store.', '/dashboard/customers');
     }
     respond(['success' => true]);
 }
@@ -627,15 +688,17 @@ function update_store($conn) {
     if ($name === '') {
         fail('Store name is required.');
     }
-    $stmt = $conn->prepare('UPDATE stores SET name = ?, description = ?, updated_at = NOW() WHERE id = ?');
-    $stmt->execute([$name, input('description'), $store['id']]);
+    // show_explore: '1' / '0' (left unchanged when not sent).
+    $explore = input('show_explore') === '' ? null : (input('show_explore') === '1' ? 'true' : 'false');
+    $stmt = $conn->prepare('UPDATE stores SET name = ?, description = ?, show_explore = COALESCE(?::boolean, show_explore), updated_at = NOW() WHERE id = ?');
+    $stmt->execute([$name, input('description'), $explore, $store['id']]);
     respond(['success' => true]);
 }
 
 function list_roles($conn) {
     [, $store] = require_seller_store($conn);
     $stmt = $conn->prepare(
-        'SELECT r.id, r.name, r.is_default, r.tier_level, COUNT(m.id) AS member_count
+        'SELECT r.id, r.name, r.is_default, r.is_srp, r.tier_level, COUNT(m.id) AS member_count
          FROM store_roles r
          LEFT JOIN store_members m ON m.role_id = r.id
          WHERE r.store_id = ?
@@ -644,13 +707,15 @@ function list_roles($conn) {
     );
     $stmt->execute([$store['id']]);
     $costRoleId = (int) $store['cost_role_id'];
-    $roles = array_map(function ($r) use ($costRoleId) {
+    $srpRoleId = srp_role_id($conn, $store['id']);
+    $roles = array_map(function ($r) use ($costRoleId, $srpRoleId) {
         return [
             'id' => (int) $r['id'],
             'name' => $r['name'],
             'tier_level' => (int) $r['tier_level'],
             'is_default' => (bool) $r['is_default'],
             'is_cost' => (int) $r['id'] === $costRoleId,
+            'is_srp' => (int) $r['id'] === $srpRoleId,
             'member_count' => (int) $r['member_count'],
         ];
     }, $stmt->fetchAll());
@@ -662,6 +727,17 @@ function set_cost_role($conn) {
     [, $store] = require_seller_store($conn);
     $role = owned_role($conn, $store['id'], input('role_id'));
     $conn->prepare('UPDATE stores SET cost_role_id = ? WHERE id = ?')->execute([$role['id'], $store['id']]);
+    respond(['success' => true]);
+}
+
+/** Marks the tier whose price is the SRP / retail price (one per store). Inputs: role_id. */
+function set_srp_role($conn) {
+    [, $store] = require_seller_store($conn);
+    $role = owned_role($conn, $store['id'], input('role_id'));
+    $conn->beginTransaction();
+    $conn->prepare('UPDATE store_roles SET is_srp = FALSE WHERE store_id = ? AND is_srp')->execute([$store['id']]);
+    $conn->prepare('UPDATE store_roles SET is_srp = TRUE WHERE id = ?')->execute([$role['id']]);
+    $conn->commit();
     respond(['success' => true]);
 }
 

@@ -15,7 +15,7 @@ Next.js frontend + PHP backend, with PostgreSQL (managed through pgAdmin) and a 
 | `start.bat` | Starts the Docker containers, then Next.js and the WebSocket server. Press Ctrl+C to stop. |
 | `stop.bat` | Stops the Docker containers. Your data is kept. |
 | `migrate.bat` | Applies `database/postgres/*.sql` to the running database. `setup.bat` and `start.bat` run it for you. |
-| `seed-owner.bat` | Creates the default seller account + store from the `OWNER_*` settings in `.env`. `setup.bat` and `start.bat` run it for you. |
+| `seed-owner.bat` | Creates the default seller account + store (`OWNER_*` in `.env`) and the default admin account (`ADMIN_*`). `setup.bat` and `start.bat` run it for you. |
 | `reset-db.bat` | **Deletes all data** and recreates empty tables (asks you to type YES first). |
 
 Double-click `setup.bat` once, then `start.bat` every time after that.
@@ -33,11 +33,18 @@ Double-click `setup.bat` once, then `start.bat` every time after that.
 | `/dashboard/customers` | sellers | Customers who joined, and their tier. |
 | `/dashboard/settings/tiers` | sellers | Customer tiers: order (1 = best price), rename, add/delete, default tier, my-cost tier. |
 | `/dashboard/settings/store` | sellers | Store name and description. |
+| `/dashboard/settings/payments` | sellers | Payment methods (GCash, bank, cash…) with QR codes / attachments. |
+| `/admin` | admins | Every account: search, edit, set a new password, turn off / on, delete, create sellers, customers or admins. |
 
 - The default seller (the site owner) comes from `OWNER_NAME`, `OWNER_USERNAME`, `OWNER_EMAIL`, `OWNER_PASSWORD`,
   `OWNER_STORE_NAME` and `OWNER_STORE_SLUG` in `.env`. It is recreated after `reset-db.bat`, and changing
   `OWNER_PASSWORD` then running `start.bat` changes the password. Leave `OWNER_EMAIL` empty to skip it.
-- Every account is either a `seller` or a `customer` (`users.account_type`).
+- Every account is a `seller`, a `customer` or an `admin` (`users.account_type`).
+- The default admin comes from `ADMIN_NAME`, `ADMIN_USERNAME`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` (log in with
+  the username). Like the owner, changing `ADMIN_PASSWORD` then running `start.bat` changes the password.
+- An admin can **turn off** an account (`users.is_active`): it can't log in, is logged out at once, and a turned-off
+  seller's store page is hidden. Nothing is deleted. **Delete** removes the account for good (a seller's store,
+  products, invoices and uploads too) and asks you to type the username first.
 - Each seller has one store (`stores`). The link slug comes from the store name and never changes.
 - Each store has its own roles (`store_roles`): new stores start with **Retailer** (default), **Reseller** and **Wholesaler**.
   Deleting a role moves its customers to the default role.
@@ -76,7 +83,7 @@ Double-click `setup.bat` once, then `start.bat` every time after that.
 | --- | --- |
 | `/dashboard/invoices` | All invoices; **Pending approval** tab for customer orders (badge in the sidebar). |
 | `/dashboard/invoices/new` | New invoice: pick a registered customer or type a walk-in name, choose the price tier, add products. |
-| `/dashboard/invoices/{id}` | Pending order: edit items / prices / discount, then **Approve** or **Reject**. Confirmed: **Print** or **Cancel**. |
+| `/dashboard/invoices/{id}` | Pending order: edit items / prices / discount, then **Approve** or **Reject**. Confirmed: **Edit**, **Print**, **Cancel**, record **payments**, **release** items. |
 | `/dashboard/inventory` | Stock per product, low-stock alerts, add / remove / set stock with a note, history per product. |
 | Store page (customers) | Members tap **Add to order**, review the cart and **Place order**. |
 | `/account`, `/account/orders/{id}` | A customer's orders and their status. |
@@ -84,6 +91,12 @@ Double-click `setup.bat` once, then `start.bat` every time after that.
 - **Invoices you make** are confirmed at once and the items leave your inventory.
 - **Orders from a customer's account** are *pending*. Prices come from the customer's role (they cannot set their own).
   You can change quantities, prices and discount, then approve (stock is deducted) or reject.
+- **Editing** a confirmed invoice only moves the difference in stock (more of an item = taken out, less = put back).
+- **Payment status** (unpaid / partly paid / paid / overpaid) is worked out from the confirmed payments against the
+  total, so editing a paid invoice to add an item makes it *partly paid*. Payments can have a receipt (photo or PDF).
+  Customers can send a payment with proof from their order page; it waits for you to **Confirm** or **Reject** it.
+- **Release:** a confirmed invoice is *open* until you mark it *released* to someone (e.g. the customer or a courier).
+- Unpaid invoices and your store page show **How to pay** (your active payment methods and their QR codes).
 - **Cancelling** a confirmed invoice puts the items back in stock.
 - If stock would go below zero you get a warning and can continue anyway.
 - **My cost = the DD price.** The store's *cost role* (DD by default; change it in Customers & Roles with the coin

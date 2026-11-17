@@ -1,5 +1,5 @@
 -- BeautyHub PostgreSQL schema.
--- Mirrors laravel-backend/database/migrations. Docker runs this file
+-- Docker runs this file
 -- automatically the first time the postgres volume is created.
 
 CREATE TABLE IF NOT EXISTS users (
