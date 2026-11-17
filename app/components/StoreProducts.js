@@ -1,5 +1,6 @@
 'use client';
 
+import SearchSelect from './SearchSelect';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import Pager from './Pager';
@@ -73,22 +74,37 @@ export default function StoreProducts({ store, viewer }) {
   const [cartOpen, setCartOpen] = useState(false);
   const [openProduct, setOpenProduct] = useState(null);
 
-  const setQty = (p, qty) => {
+  // Cart key: product id, plus the variant id for products with variants ("12:7").
+  const cartKey = (p, variant) => (variant ? `${p.id}:${variant.id}` : String(p.id));
+
+  /** Set the quantity of a product (and variant) in the cart; 0 removes it. */
+  const setQty = (p, qty, variant = null) => {
+    const key = cartKey(p, variant);
     const next = { ...cart };
     if (qty > 0) {
-      next[p.id] = {
+      next[key] = {
         qty: Math.min(qty, 9999),
-        name: p.name ?? cart[p.id]?.name,
-        brand: p.brand ?? cart[p.id]?.brand,
-        price: p.price !== undefined ? unitPrice(p) : cart[p.id]?.price,
-        uom: p.size ?? cart[p.id]?.uom,
+        product_id: p.id,
+        variant_id: variant?.id ?? null,
+        variant_name: variant?.name ?? null,
+        name: p.name,
+        brand: p.brand,
+        price: variant?.price != null ? Number(variant.price) : unitPrice(p),
+        uom: p.size,
       };
     } else {
-      delete next[p.id];
+      delete next[key];
     }
     setCart(next);
   };
-  const cartLines = Object.entries(cart).map(([id, c]) => ({ id: Number(id), ...c }));
+  /** Change the quantity of a line already in the cart. */
+  const setLineQty = (key, qty) => {
+    const next = { ...cart };
+    if (qty > 0) next[key] = { ...next[key], qty: Math.min(qty, 9999) };
+    else delete next[key];
+    setCart(next);
+  };
+  const cartLines = Object.entries(cart).map(([key, c]) => ({ key, product_id: c.product_id ?? Number(key), ...c }));
   const cartCount = cartLines.reduce((s, l) => s + l.qty, 0);
   const cartTotal = cartLines.reduce((s, l) => s + l.qty * Number(l.price || 0), 0);
 
@@ -109,14 +125,14 @@ export default function StoreProducts({ store, viewer }) {
           {priceNote && <p className="price_note">{priceNote}</p>}
         </div>
         <input className="form-control" placeholder="Search products" value={filters.q} onChange={(e) => setFilter('q', e.target.value)} />
-        <select className="form-select" value={filters.category} onChange={(e) => setFilter('category', e.target.value)} aria-label="Category">
+        <SearchSelect className="form-select" value={filters.category} onChange={(e) => setFilter('category', e.target.value)} aria-label="Category">
           <option value="">All categories</option>
           {facets?.categories.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.n})</option>)}
-        </select>
-        <select className="form-select" value={filters.brand} onChange={(e) => setFilter('brand', e.target.value)} aria-label="Brand">
+        </SearchSelect>
+        <SearchSelect className="form-select" value={filters.brand} onChange={(e) => setFilter('brand', e.target.value)} aria-label="Brand">
           <option value="">All brands</option>
           {facets?.brands.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.n})</option>)}
-        </select>
+        </SearchSelect>
       </div>
 
       {facets && facets.brands.some((b) => b.logo_path) && (
@@ -159,8 +175,22 @@ export default function StoreProducts({ store, viewer }) {
                   <button type="button" className="p_name" onClick={() => setOpenProduct(p)}>{p.name}</button>
                   <PriceLine p={p} />
                   {p.promo_type && <span className="p_promo">Promo {promoLabel(p.promo_type, p.promo_until)}</span>}
+                  {p.has_variants && p.variants.length > 0 && (
+                    <span className="p_variants">
+                      {p.variants.slice(0, 6).map((v) => (
+                        <span key={v.id} className={`p_swatch${v.in_stock ? '' : ' out'}`} title={v.name}>
+                          {v.image ? <img src={v.image} alt="" /> : v.name.slice(0, 2)}
+                        </span>
+                      ))}
+                      <small>{p.variants.length} {(p.variant_label || 'option').toLowerCase()}s</small>
+                    </span>
+                  )}
                   {canOrder && unitPrice(p) &&
-                    (cart[p.id] ? (
+                    (p.has_variants ? (
+                      <button type="button" className="btn btn-primary btn-sm add_btn" onClick={() => setOpenProduct(p)}>
+                        Choose {(p.variant_label || 'option').toLowerCase()}
+                      </button>
+                    ) : cart[p.id] ? (
                       <QtyStepper value={cart[p.id].qty} onChange={(n) => setQty(p, n)} label={`Quantity of ${p.name}`} />
                     ) : (
                       <button type="button" className="btn btn-primary btn-sm add_btn" onClick={() => setQty(p, 1)}>Add to order</button>
@@ -185,7 +215,7 @@ export default function StoreProducts({ store, viewer }) {
           store={store}
           lines={cartLines}
           total={cartTotal}
-          setQty={(id, qty) => setQty({ id }, qty)}
+          setQty={setLineQty}
           onClose={() => setCartOpen(false)}
           onPlaced={() => setCart({})}
         />
@@ -195,7 +225,8 @@ export default function StoreProducts({ store, viewer }) {
           store={store}
           summary={openProduct}
           canOrder={canOrder}
-          inCart={cart[openProduct.id]?.qty ?? 0}
+          cart={cart}
+          cartKey={cartKey}
           setQty={setQty}
           onClose={() => setOpenProduct(null)}
         />
@@ -205,9 +236,10 @@ export default function StoreProducts({ store, viewer }) {
 }
 
 /** Product details: photo gallery, videos, price, add to order. */
-function ProductModal({ store, summary, canOrder, inCart, setQty, onClose }) {
+function ProductModal({ store, summary, canOrder, cart, cartKey, setQty, onClose }) {
   const [product, setProduct] = useState(null);
   const [active, setActive] = useState(0);
+  const [variantId, setVariantId] = useState(null);
 
   useEffect(() => {
     api('get_store_product', { slug: store.slug, id: summary.id }).then((d) => d.success && setProduct(d.product));
@@ -218,7 +250,12 @@ function ProductModal({ store, summary, canOrder, inCart, setQty, onClose }) {
 
   const p = product ?? summary;
   const media = product?.media ?? (summary.cover ? [{ kind: 'image', path: summary.cover, thumb_path: summary.cover }] : []);
-  const current = media[active];
+  const variants = p.variants ?? [];
+  const variant = variants.find((v) => v.id === variantId) ?? null;
+  // A chosen variant with its own photo shows that photo.
+  const current = variant?.image_full ? { kind: 'image', path: variant.image_full } : media[active];
+  const inCart = cart[cartKey(p, variant)]?.qty ?? 0;
+  const needsChoice = p.has_variants && !variant;
 
   return (
     <div className="modal_backdrop" onClick={onClose}>
@@ -251,15 +288,49 @@ function ProductModal({ store, summary, canOrder, inCart, setQty, onClose }) {
           </span>
           <h2>{p.name}</h2>
           <p className="price_note">{[p.category, p.size].filter(Boolean).join(' · ')}</p>
-          <PriceLine p={p} />
+          {variant?.price != null && Number(variant.price) !== Number(unitPrice(p)) ? (
+            <div className="p_price">
+              <span className="p_now">{money(variant.price)}</span>
+              {p.size && <span className="p_uom">/ {p.size}</span>}
+            </div>
+          ) : (
+            <PriceLine p={p} />
+          )}
           {p.promo_type && <span className="p_promo">Promo {promoLabel(p.promo_type, p.promo_until)}</span>}
           {p.description && <p className="pm_desc">{p.description}</p>}
+          {p.has_variants && variants.length > 0 && (
+            <div className="pm_variants">
+              <span className="pm_vlabel">
+                {p.variant_label || 'Option'}: <strong>{variant ? variant.name : 'choose one'}</strong>
+              </span>
+              <div className="pm_vlist" role="radiogroup" aria-label={p.variant_label || 'Option'}>
+                {variants.map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={v.id === variantId}
+                    className={`pm_vbtn${v.id === variantId ? ' on' : ''}${v.in_stock ? '' : ' out'}`}
+                    onClick={() => setVariantId(v.id)}
+                    title={v.in_stock ? v.name : `${v.name} (out of stock)`}
+                  >
+                    {v.image && <img src={v.image} alt="" />}
+                    <span>{v.name}</span>
+                    {v.price != null && Number(v.price) !== Number(unitPrice(p)) && <small className="pm_vprice">{money(v.price)}</small>}
+                  </button>
+                ))}
+              </div>
+              {variant && !variant.in_stock && <small className="price_note">Out of stock — you can still order; the seller will confirm.</small>}
+            </div>
+          )}
           {canOrder && unitPrice(p) && (
             <div style={{ marginTop: 12 }}>
               {inCart ? (
-                <QtyStepper value={inCart} onChange={(n) => setQty(p, n)} label={`Quantity of ${p.name}`} />
+                <QtyStepper value={inCart} onChange={(n) => setQty(p, n, variant)} label={`Quantity of ${p.name}`} />
               ) : (
-                <button type="button" className="btn btn-primary add_btn" onClick={() => setQty(p, 1)}>Add to order</button>
+                <button type="button" className="btn btn-primary add_btn" disabled={needsChoice} onClick={() => setQty(p, 1, variant)}>
+                  {needsChoice ? `Choose a ${(p.variant_label || 'option').toLowerCase()} first` : 'Add to order'}
+                </button>
               )}
             </div>
           )}
@@ -289,7 +360,7 @@ function CartDrawer({ store, lines, total, setQty, onClose, onPlaced }) {
       slug: store.slug,
       notes,
       contact,
-      items: JSON.stringify(lines.map((l) => ({ product_id: l.id, qty: l.qty }))),
+      items: JSON.stringify(lines.map((l) => ({ product_id: l.product_id, variant_id: l.variant_id ?? '', qty: l.qty }))),
     });
     setBusy(false);
     if (!result.success) return setError(result.message || 'Could not place the order.');
@@ -319,12 +390,12 @@ function CartDrawer({ store, lines, total, setQty, onClose, onPlaced }) {
             <div className="drawer_body">
               <ul className="cart_lines">
                 {lines.map((l) => (
-                  <li key={l.id}>
+                  <li key={l.key}>
                     <div>
-                      <strong>{l.name}</strong>
+                      <strong>{l.name}{l.variant_name && ` — ${l.variant_name}`}</strong>
                       <small>{l.brand} · {money(l.price)}{l.uom ? ` / ${l.uom}` : ''}</small>
                     </div>
-                    <QtyStepper small value={l.qty} onChange={(n) => setQty(l.id, n)} label={`Quantity of ${l.name}`} />
+                    <QtyStepper small value={l.qty} onChange={(n) => setQty(l.key, n)} label={`Quantity of ${l.name}`} />
                     <span className="line_amt">{money(l.qty * Number(l.price))}</span>
                   </li>
                 ))}

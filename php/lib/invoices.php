@@ -29,7 +29,7 @@ function prices_for_role($conn, $store, array $productIds, $roleId) {
     $roleId = (int) $roleId ?: default_role_id($conn, $store['id']);
     $in = implode(',', array_fill(0, count($productIds), '?'));
     $stmt = $conn->prepare(
-        "SELECT p.id, p.name, p.is_active, p.stock_qty, p.promo_price, p.promo_type, p.promo_until,
+        "SELECT p.id, p.name, p.is_active, p.stock_qty, p.has_variants, p.variant_label, p.promo_price, p.promo_type, p.promo_until,
                 b.name AS brand, u.code AS uom,
                 tier_price(p.id, ?) AS price,
                 tier_price(p.id, ?) AS cost
@@ -83,7 +83,14 @@ function load_invoice($conn, $invoiceId, $storeId = null, $customerId = null) {
     if (!$invoice) {
         return null;
     }
-    $items = $conn->prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id');
+    // Each line shows the product's cover photo, if it has one.
+    $items = $conn->prepare(
+        'SELECT ii.*, COALESCE(
+                    (SELECT pm.thumb_path FROM product_variants pv JOIN product_media pm ON pm.id = pv.media_id WHERE pv.id = ii.variant_id),
+                    (SELECT thumb_path FROM product_media pm WHERE pm.product_id = ii.product_id AND pm.is_cover LIMIT 1)
+                ) AS image
+         FROM invoice_items ii WHERE ii.invoice_id = ? ORDER BY ii.sort_order, ii.id'
+    );
     $items->execute([$invoice['id']]);
     $invoice['items'] = array_map(function ($it) {
         foreach (['id', 'product_id', 'qty'] as $k) {
@@ -101,8 +108,8 @@ function load_invoice($conn, $invoiceId, $storeId = null, $customerId = null) {
 function write_invoice_lines($conn, $invoiceId, array $lines, $discount) {
     $conn->prepare('DELETE FROM invoice_items WHERE invoice_id = ?')->execute([$invoiceId]);
     $insert = $conn->prepare(
-        'INSERT INTO invoice_items (invoice_id, product_id, product_name, brand_name, uom, qty, unit_price, unit_cost, line_total, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO invoice_items (invoice_id, product_id, variant_id, variant_name, product_name, brand_name, uom, qty, unit_price, unit_cost, line_total, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     $subtotal = 0.0;
     foreach ($lines as $i => $line) {
@@ -110,7 +117,7 @@ function write_invoice_lines($conn, $invoiceId, array $lines, $discount) {
         $lineTotal = round($line['qty'] * (float) $line['unit_price'], 2);
         $subtotal += $lineTotal;
         $insert->execute([
-            $invoiceId, $p['id'], $p['name'], $p['brand'], $p['uom'], $line['qty'], $line['unit_price'],
+            $invoiceId, $p['id'], $line['variant']['id'] ?? null, $line['variant']['name'] ?? null, $p['name'], $p['brand'], $p['uom'], $line['qty'], $line['unit_price'],
             $p['cost'], number_format($lineTotal, 2, '.', ''), $i,
         ]);
     }
@@ -136,6 +143,7 @@ function build_lines($conn, $store, array $items, $roleId, $pricesFromRole) {
     }
     $ids = array_values(array_unique(array_map(fn ($it) => (int) ($it['product_id'] ?? 0), $items)));
     $products = prices_for_role($conn, $store, $ids, $roleId);
+    $variantsByProduct = variants_for_products($conn, $ids);
 
     $lines = [];
     foreach ($items as $n => $it) {
@@ -152,47 +160,87 @@ function build_lines($conn, $store, array $items, $roleId, $pricesFromRole) {
             if (!$product['is_active']) {
                 throw new ProductError("{$product['name']} is not available.");
             }
-            if ($product['price'] === null) {
+            // (Variant products are priced per variant below.)
+            if ($product['price'] === null && !$product['has_variants']) {
                 throw new ProductError("{$product['name']} has no price yet. Please ask the seller.");
             }
-            $unitPrice = number_format((float) $product['price'], 2, '.', '');
+            $unitPrice = $product['price'] === null ? null : number_format((float) $product['price'], 2, '.', '');
         } else {
             $unitPrice = money_or_error($it['unit_price'] ?? '', "{$product['name']} price");
             if ($unitPrice === null) {
                 throw new ProductError("{$product['name']}: enter a price.");
             }
         }
-        $lines[] = ['product' => $product, 'qty' => (int) $qty, 'unit_price' => $unitPrice];
+        // Products with variants need one chosen (e.g. which shade).
+        $variant = null;
+        if ($product['has_variants']) {
+            $vid = (int) ($it['variant_id'] ?? 0);
+            foreach ($variantsByProduct[$pid] ?? [] as $v) {
+                if ($v['id'] === $vid) {
+                    $variant = $v;
+                }
+            }
+            $label = strtolower($product['variant_label'] ?: 'variant');
+            if (!$variant) {
+                throw new ProductError("{$product['name']}: choose a $label.");
+            }
+            if ($pricesFromRole && !$variant['is_active']) {
+                throw new ProductError("{$product['name']} – {$variant['name']} is not available.");
+            }
+            // A variant can have its own price (and cost).
+            $vp = variant_prices_for_role($conn, $store, [$variant['id']], $roleId)[$variant['id']] ?? null;
+            if ($vp) {
+                $product['cost'] = $vp['cost'];
+                if ($pricesFromRole) {
+                    if ($vp['price'] === null) {
+                        throw new ProductError("{$product['name']} – {$variant['name']} has no price yet. Please ask the seller.");
+                    }
+                    $unitPrice = number_format((float) $vp['price'], 2, '.', '');
+                }
+            }
+        }
+        $lines[] = ['product' => $product, 'variant' => $variant, 'qty' => (int) $qty, 'unit_price' => $unitPrice];
     }
     return $lines;
 }
 
-/** Products whose stock would go below zero: [['name' => .., 'stock' => .., 'qty' => ..]]. */
-function stock_shortages($conn, $storeId, array $lines) {
-    $need = [];
-    foreach ($lines as $l) {
-        $need[$l['product']['id']] = ($need[$l['product']['id']] ?? 0) + $l['qty'];
-    }
+/**
+ * Products (or variants) whose stock would go below zero.
+ * $rows: [['product_id' => .., 'variant_id' => ?, 'qty' => ..]] (already summed).
+ * Returns [['name' => .., 'stock' => .., 'qty' => ..]].
+ */
+function stock_shortages($conn, $storeId, array $rows) {
     $short = [];
-    $stmt = $conn->prepare('SELECT name, stock_qty FROM product_details WHERE id = ? AND store_id = ? FOR UPDATE');
-    foreach ($need as $pid => $qty) {
-        $stmt->execute([$pid, $storeId]);
+    $product = $conn->prepare('SELECT name, stock_qty FROM product_details WHERE id = ? AND store_id = ? FOR UPDATE');
+    $variant = $conn->prepare(
+        'SELECT p.name || \' – \' || v.name AS name, v.stock_qty FROM product_variants v JOIN product_details p ON p.id = v.product_id
+         WHERE v.id = ? AND v.store_id = ? FOR UPDATE'
+    );
+    foreach ($rows as $r) {
+        $stmt = $r['variant_id'] ? $variant : $product;
+        $stmt->execute([$r['variant_id'] ?: $r['product_id'], $storeId]);
         $p = $stmt->fetch();
-        if ($p && (int) $p['stock_qty'] < $qty) {
-            $short[] = ['name' => $p['name'], 'stock' => (int) $p['stock_qty'], 'qty' => $qty];
+        if ($p && (int) $p['stock_qty'] < (int) $r['qty']) {
+            $short[] = ['name' => $p['name'], 'stock' => (int) $p['stock_qty'], 'qty' => (int) $r['qty']];
         }
     }
     return $short;
 }
 
-/** Deducts stock for a confirmed invoice. Fails with `shortages` unless allow_oversell=1. */
+/** Deducts stock for a confirmed invoice (per variant). Fails with `shortages` unless allow_oversell=1. */
 function deduct_invoice_stock($conn, $store, $userId, $invoiceId, $invoiceNo) {
-    $items = $conn->prepare('SELECT product_id, SUM(qty) AS qty, MIN(product_name) AS name FROM invoice_items WHERE invoice_id = ? AND product_id IS NOT NULL GROUP BY product_id');
+    $items = $conn->prepare(
+        'SELECT product_id, variant_id, SUM(qty) AS qty FROM invoice_items
+         WHERE invoice_id = ? AND product_id IS NOT NULL GROUP BY product_id, variant_id'
+    );
     $items->execute([$invoiceId]);
-    $rows = $items->fetchAll();
+    $rows = array_map(fn ($r) => [
+        'product_id' => (int) $r['product_id'],
+        'variant_id' => $r['variant_id'] === null ? null : (int) $r['variant_id'],
+        'qty' => (int) $r['qty'],
+    ], $items->fetchAll());
 
-    $lines = array_map(fn ($r) => ['product' => ['id' => (int) $r['product_id']], 'qty' => (int) $r['qty']], $rows);
-    $short = stock_shortages($conn, $store['id'], $lines);
+    $short = stock_shortages($conn, $store['id'], $rows);
     if ($short && input('allow_oversell') !== '1') {
         $conn->rollBack();
         respond([
@@ -203,13 +251,13 @@ function deduct_invoice_stock($conn, $store, $userId, $invoiceId, $invoiceNo) {
         ], 409);
     }
     foreach ($rows as $r) {
-        apply_stock_change($conn, $store['id'], (int) $r['product_id'], -(int) $r['qty'], 'invoice', $userId, $invoiceId, $invoiceNo);
+        apply_stock_change($conn, $store['id'], $r['product_id'], -$r['qty'], 'invoice', $userId, $invoiceId, $invoiceNo, $r['variant_id']);
     }
 }
 
 function customer_role($conn, $storeId, $userId) {
     $stmt = $conn->prepare(
-        'SELECT m.id AS member_id, u.name, u.email, r.id AS role_id, r.name AS role_name
+        'SELECT m.id AS member_id, u.name, u.email, u.phone, r.id AS role_id, r.name AS role_name
          FROM store_members m JOIN users u ON u.id = m.user_id LEFT JOIN store_roles r ON r.id = m.role_id
          WHERE m.store_id = ? AND m.user_id = ?'
     );
@@ -319,7 +367,7 @@ function save_invoice($conn) {
                 throw new ProductError('That customer is not in your store.');
             }
             $customerName = $member['name'];
-            $contact = input('customer_contact') ?: $member['email'];
+            $contact = input('customer_contact') ?: ($member['phone'] ?: $member['email']);
             $roleId = $roleId ?: (int) $member['role_id'];
         } else {
             $customerName = mb_substr(input('customer_name'), 0, 160) ?: 'Walk-in customer';
@@ -410,7 +458,7 @@ function cancel_invoice($conn) {
     try {
         foreach ($invoice['items'] as $it) {
             if ($it['product_id']) {
-                apply_stock_change($conn, $store['id'], $it['product_id'], $it['qty'], 'invoice_cancelled', $user['id'], $invoice['id'], $invoice['invoice_no']);
+                apply_stock_change($conn, $store['id'], $it['product_id'], $it['qty'], 'invoice_cancelled', $user['id'], $invoice['id'], $invoice['invoice_no'], $it['variant_id'] ? (int) $it['variant_id'] : null);
             }
         }
     } catch (ProductError $e) {
@@ -427,9 +475,9 @@ function cancel_invoice($conn) {
 function invoice_customers($conn) {
     [, $store] = require_seller_store($conn);
     // Type-ahead: up to 15 customers matching q (name, username, email).
-    [$searchSql, $searchParams] = search_sql(input('q'), ['u.name', 'u.username', 'u.email']);
+    [$searchSql, $searchParams] = search_sql(input('q'), ['u.name', 'u.username', 'u.email', 'u.phone']);
     $stmt = $conn->prepare(
-        "SELECT u.id AS user_id, u.name, u.username, u.email, m.role_id, r.name AS role_name
+        "SELECT u.id AS user_id, u.name, u.username, u.email, u.phone, m.role_id, r.name AS role_name
          FROM store_members m JOIN users u ON u.id = m.user_id LEFT JOIN store_roles r ON r.id = m.role_id
          WHERE m.store_id = ? $searchSql ORDER BY LOWER(u.name) LIMIT 15"
     );
@@ -524,7 +572,7 @@ function place_order($conn) {
 
     $conn->beginTransaction();
     try {
-        $items = array_map(fn ($it) => ['product_id' => $it['product_id'] ?? 0, 'qty' => $it['qty'] ?? 0], json_input('items'));
+        $items = array_map(fn ($it) => ['product_id' => $it['product_id'] ?? 0, 'variant_id' => $it['variant_id'] ?? 0, 'qty' => $it['qty'] ?? 0], json_input('items'));
         $lines = build_lines($conn, $store, $items, $member['role_id'], true);
         $invoiceNo = next_invoice_no($conn, $store['id']);
         $stmt = $conn->prepare(

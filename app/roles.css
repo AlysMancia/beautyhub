@@ -211,3 +211,60 @@
   .product_modal { grid-template-columns: 1fr; }
   .product_grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* login: remember me */
+.remember_me { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 14px; cursor: pointer; color: #4f434a; font-weight: 600; }
+.remember_me input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); flex: none; }
+.remember_me small { display: block; font-weight: 400; color: var(--muted); font-size: 13px; }
+
+/* ---------- account code card ---------- */
+.account_code {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 16px; border-radius: 14px; background: #fff; border: 1px dashed var(--pink-200); margin-bottom: 1rem;
+}
+.account_code small { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.account_code strong { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.5rem; letter-spacing: .14em; color: #3d333a; }
+.account_code span { display: block; color: var(--muted); font-size: 13px; }
+.account_code button { border: 1px solid var(--pink-200); background: var(--pink-50); color: var(--accent); border-radius: 999px; padding: 6px 14px; font-weight: 700; }
+
+/* ---------- searchable dropdown (SearchSelect) ---------- */
+.ss-trigger {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left;
+  background: #fff; border: 1px solid #f0cad9; border-radius: 10px; padding: 7px 10px; min-height: 36px;
+  color: #3d333a; font-size: inherit; cursor: pointer; max-width: 100%;
+}
+.ss-trigger.full, .ss-trigger.form-control, .ss-trigger.dash-select.full { width: 100%; }
+.ss-trigger.form-select { border-radius: 999px; padding: 6px 14px; border-color: #dee2e6; min-width: 160px; }
+.ss-trigger:focus-visible { outline: 2px solid rgba(236, 90, 134, .35); border-color: #ec5a86; }
+.ss-trigger:disabled { background: #f6f2f4; color: #9b8e98; cursor: default; }
+.ss-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-value.ph { color: #9b8e98; }
+.ss-caret { font-size: 11px; color: #9b8e98; flex: none; }
+.ss-panel {
+  position: fixed; z-index: 3000; background: #fff; border: 1px solid #f0cad9; border-radius: 12px;
+  box-shadow: 0 14px 34px rgba(40, 20, 30, .18); overflow: hidden; font-size: 14px;
+}
+.ss-search { width: 100%; border: 0; border-bottom: 1px solid #f2e8ed; padding: 10px 12px; outline: none; }
+.ss-panel ul { list-style: none; margin: 0; padding: 4px; overflow-y: auto; }
+.ss-panel li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; cursor: pointer; color: #3d333a; }
+.ss-panel li.active { background: #fdeaf1; }
+.ss-panel li.selected { font-weight: 700; color: #d6517b; }
+.ss-panel li.disabled { color: #b9adb5; cursor: default; }
+.ss-panel li i { font-size: 12px; }
+.ss-empty { color: #9b8e98; cursor: default !important; }
+
+/* ---------- variants on the store page ---------- */
+.p_variants { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.p_swatch { width: 22px; height: 22px; border-radius: 50%; overflow: hidden; border: 1px solid #f0dce5; display: grid; place-items: center; font-size: 9px; color: #6b5d66; background: #fbf5f8; }
+.p_swatch img { width: 100%; height: 100%; object-fit: cover; }
+.p_swatch.out { opacity: .4; }
+.p_variants small { color: var(--muted); margin-left: 2px; }
+.pm_variants { margin-top: 12px; }
+.pm_vlabel { display: block; font-size: 14px; color: #4f434a; margin-bottom: 6px; }
+.pm_vlist { display: flex; flex-wrap: wrap; gap: 6px; }
+.pm_vbtn { display: inline-flex; align-items: center; gap: 6px; border: 1.5px solid #f0dce5; background: #fff; border-radius: 999px; padding: 4px 12px 4px 4px; font-size: 13px; color: #3d333a; }
+.pm_vbtn:not(:has(img)) { padding-left: 12px; }
+.pm_vbtn img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+.pm_vbtn.on { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(231, 111, 147, .15); font-weight: 700; }
+.pm_vbtn.out span { text-decoration: line-through; color: var(--muted); }
+.pm_vprice { color: var(--muted); font-size: 11px; }

@@ -24,7 +24,8 @@ export default function InvoiceView({ invoice, showCost = false }) {
         </div>
         <div className="paper-meta">
           <strong>{invoice.invoice_no}</strong>
-          <span className={`status-pill ${status.className}`}>{status.label}</span>
+          {/* A normal (confirmed) invoice needs no label; pending/cancelled/rejected still say so. */}
+          {invoice.status !== 'confirmed' && <span className={`status-pill ${status.className}`}>{status.label}</span>}
           <span className="muted">{fmt(invoice.created_at)}</span>
         </div>
       </header>
@@ -35,11 +36,6 @@ export default function InvoiceView({ invoice, showCost = false }) {
           <strong>{invoice.customer_name}</strong>
           {invoice.customer_contact && <span>{invoice.customer_contact}</span>}
           {invoice.role_name && <span className="muted">Price tier: {invoice.role_name}</span>}
-        </div>
-        <div>
-          <small className="muted">{invoice.source === 'customer' ? 'Ordered online by the customer' : 'Made by the seller'}</small>
-          {invoice.confirmed_at && <span>Confirmed {fmt(invoice.confirmed_at)}</span>}
-          {invoice.closed_at && <span>{status.short} {fmt(invoice.closed_at)}</span>}
         </div>
       </div>
 
@@ -56,8 +52,13 @@ export default function InvoiceView({ invoice, showCost = false }) {
           {invoice.items.map((it) => (
             <tr key={it.id}>
               <td>
-                {it.product_name}
-                {it.brand_name && <small>{it.brand_name}</small>}
+                <span className="line-item">
+                  {it.image && <img src={it.image} alt="" className="line-img" />}
+                  <span>
+                    {it.product_name}{it.variant_name && <span className="line-variant"> — {it.variant_name}</span>}
+                    {it.brand_name && <small>{it.brand_name}</small>}
+                  </span>
+                </span>
               </td>
               <td className="num">{it.qty}{it.uom ? ` ${it.uom}` : ''}</td>
               <td className="num">{money(it.unit_price)}</td>

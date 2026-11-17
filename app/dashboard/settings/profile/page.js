@@ -1,5 +1,6 @@
 'use client';
 
+import AccountCode from '../../../components/AccountCode';
 import ProfileForm from '../../../components/ProfileForm';
 import { useSeller } from '../../SellerContext';
 
@@ -13,7 +14,10 @@ export default function SellerProfilePage() {
           <p>Your login details. Your store name is in Settings → Store details.</p>
         </div>
       </header>
-      <div style={{ marginTop: 18 }}>
+      <div style={{ marginTop: 12, maxWidth: 560 }}>
+        <AccountCode code={user.code} hint="Your account's unique code." />
+      </div>
+      <div style={{ marginTop: 12 }}>
         <ProfileForm user={user} onSaved={reload} />
       </div>
     </>

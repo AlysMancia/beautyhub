@@ -1,6 +1,9 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
 
+// Sessions last 8 hours of inactivity (PHP's default is 24 minutes).
+// "Remember me" (lib/remember.php) keeps you logged in for 30 days.
+ini_set('session.gc_maxlifetime', (string) (8 * 3600));
 session_set_cookie_params([
     'path' => '/',
     'httponly' => true,
@@ -46,6 +49,9 @@ require __DIR__ . '/lib/inventory.php';
 require __DIR__ . '/lib/invoices.php';
 require __DIR__ . '/lib/media.php';
 require __DIR__ . '/lib/listings.php';
+require __DIR__ . '/lib/remember.php';
+require __DIR__ . '/lib/customers.php';
+require __DIR__ . '/lib/variants.php';
 
 $routes = [
     // auth
@@ -100,6 +106,12 @@ $routes = [
     'my_orders'       => 'my_orders',
     'set_cost_role'   => 'set_cost_role',
     'move_role'       => 'move_role',
+    'add_customer'    => 'add_customer',
+    'update_customer' => 'update_customer',
+    'link_customer_account' => 'link_customer_account',
+    'save_variants'   => 'save_variants',
+    'price_list'      => 'price_list',
+    'quick_update_product' => 'quick_update_product',
     // photos, videos, logos (lib/media.php)
     'get_product_media'    => 'get_product_media',
     'upload_product_media' => 'upload_product_media',
@@ -118,6 +130,9 @@ $routes = [
     'update_profile'  => 'update_profile',
     'change_password' => 'change_password',
 ];
+
+// Logged out because the session expired? A "remember me" cookie logs you back in.
+restore_remembered_login($conn);
 
 $functionName = $_POST['FunctionName'] ?? '';
 if (!isset($routes[$functionName])) {
@@ -183,7 +198,7 @@ function current_user($conn) {
     if (empty($_SESSION['user_id'])) {
         return null;
     }
-    $stmt = $conn->prepare('SELECT id, name, username, email, account_type FROM users WHERE id = ?');
+    $stmt = $conn->prepare('SELECT id, name, username, email, phone, code, account_type FROM users WHERE id = ?');
     $stmt->execute([(int) $_SESSION['user_id']]);
     $user = $stmt->fetch();
     return $user ?: null;
@@ -291,6 +306,8 @@ function public_user($user) {
         'name' => $user['name'],
         'username' => $user['username'],
         'email' => $user['email'],
+        'phone' => $user['phone'] ?? null,
+        'code' => $user['code'] ?? null,
         'account_type' => $user['account_type'],
     ];
 }
@@ -336,8 +353,19 @@ function create_user($conn) {
         }
     }
 
-    $check = $conn->prepare('SELECT LOWER(email) = ? AS email_taken FROM users WHERE LOWER(email) = ? OR LOWER(username) = ? LIMIT 1');
-    $check->execute([$email, $email, $username]);
+    // A customer a seller added by hand (no password yet) can claim their account
+    // by signing up with the same email: they keep their stores, tier and orders.
+    $claim = null;
+    if ($accountType === 'customer') {
+        $stmt = $conn->prepare("SELECT id FROM users WHERE LOWER(email) = ? AND password IS NULL AND account_type = 'customer'");
+        $stmt->execute([$email]);
+        $claim = $stmt->fetchColumn() ?: null;
+    }
+
+    $check = $conn->prepare(
+        'SELECT LOWER(email) = ? AS email_taken FROM users WHERE (LOWER(email) = ? OR LOWER(username) = ?) AND id <> ? LIMIT 1'
+    );
+    $check->execute([$email, $email, $username, (int) $claim]);
     $existing = $check->fetch();
     if ($existing) {
         fail($existing['email_taken'] ? 'Email is already registered.' : 'Username is already taken.');
@@ -345,17 +373,23 @@ function create_user($conn) {
 
     $conn->beginTransaction();
 
-    $stmt = $conn->prepare(
-        'INSERT INTO users (name, username, email, password, account_type) VALUES (?, ?, ?, ?, ?) RETURNING id'
-    );
-    $stmt->execute([
-        trim("$firstName $lastName"),
-        $username,
-        $email,
-        password_hash($password, PASSWORD_DEFAULT),
-        $accountType,
-    ]);
-    $userId = (int) $stmt->fetchColumn();
+    if ($claim) {
+        $conn->prepare('UPDATE users SET name = ?, username = ?, password = ?, updated_at = NOW() WHERE id = ?')
+            ->execute([trim("$firstName $lastName"), $username, password_hash($password, PASSWORD_DEFAULT), $claim]);
+        $userId = (int) $claim;
+    } else {
+        $stmt = $conn->prepare(
+            'INSERT INTO users (name, username, email, password, account_type) VALUES (?, ?, ?, ?, ?) RETURNING id'
+        );
+        $stmt->execute([
+            trim("$firstName $lastName"),
+            $username,
+            $email,
+            password_hash($password, PASSWORD_DEFAULT),
+            $accountType,
+        ]);
+        $userId = (int) $stmt->fetchColumn();
+    }
 
     $storeSlug = null;
     if ($accountType === 'seller') {
@@ -404,12 +438,19 @@ function login_user($conn) {
     $stmt->execute([$lookup, $lookup]);
     $user = $stmt->fetch();
 
-    if (!$user || !password_verify($password, $user['password'])) {
+    // Customers added by a seller have no password until they sign up themselves.
+    if (!$user || $user['password'] === null || !password_verify($password, $user['password'])) {
         fail('Invalid email or password.');
     }
 
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int) $user['id'];
+
+    // "Remember me": stay logged in on this browser for 30 days.
+    forget_remember_token($conn); // drop any old token from this browser first
+    if (filter_var(input('remember'), FILTER_VALIDATE_BOOLEAN)) {
+        issue_remember_token($conn, (int) $user['id']);
+    }
 
     if ($user['account_type'] === 'customer') {
         $stores = $conn->prepare('SELECT store_id FROM store_members WHERE user_id = ?');
@@ -427,6 +468,7 @@ function login_user($conn) {
 }
 
 function logout_user($conn) {
+    forget_remember_token($conn);
     $_SESSION = [];
     session_destroy();
     respond(['success' => true]);
@@ -738,7 +780,7 @@ function list_members($conn) {
         $where .= ' AND m.role_id = ?';
         $params[] = (int) input('role_id');
     }
-    [$searchSql, $searchParams] = search_sql(input('q'), ['u.name', 'u.username', 'u.email']);
+    [$searchSql, $searchParams] = search_sql(input('q'), ['u.name', 'u.username', 'u.email', 'u.phone', 'u.code']);
     $where .= $searchSql;
     $params = array_merge($params, $searchParams);
     $from = 'FROM store_members m JOIN users u ON u.id = m.user_id LEFT JOIN store_roles r ON r.id = m.role_id';
@@ -746,7 +788,8 @@ function list_members($conn) {
     $count = $conn->prepare("SELECT COUNT(*) $from WHERE $where");
     $count->execute($params);
     $stmt = $conn->prepare(
-        "SELECT m.id, u.name, u.username, u.email, m.role_id, r.name AS role, m.created_at AS joined_at,
+        "SELECT m.id, u.name, u.username, u.email, u.phone, u.code, m.notes, m.added_by_seller, (u.password IS NOT NULL) AS has_login,
+                m.role_id, r.name AS role, m.created_at AS joined_at,
                 (SELECT COUNT(*) FROM invoices i WHERE i.store_id = m.store_id AND i.customer_user_id = m.user_id AND i.status = 'confirmed') AS orders,
                 (SELECT COALESCE(SUM(total), 0) FROM invoices i WHERE i.store_id = m.store_id AND i.customer_user_id = m.user_id AND i.status = 'confirmed') AS spent
          $from WHERE $where

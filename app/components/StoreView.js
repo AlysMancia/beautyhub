@@ -58,7 +58,7 @@ export default function StoreView({ slug }) {
 
   return (
     <main>
-      <SiteHeader title={store.name} tag="Powered by InVoice" href={storeHref(store.slug)} logo={store.logo_path || undefined}>
+      <SiteHeader title={store.name} tag={null}href={storeHref(store.slug)} logo={store.logo_path || undefined}>
         {viewer.relation === 'guest' ? (
           <>
             <Link href={loginHref} className="btn login_btn">Login</Link>

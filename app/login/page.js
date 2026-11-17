@@ -11,6 +11,7 @@ function LoginForm() {
   const storeSlug = useSearchParams().get('store') || '';
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -29,6 +30,7 @@ function LoginForm() {
     const result = await api('login_user', {
       username: usernameOrEmail.trim(),
       password: password.trim(),
+      remember: remember ? '1' : '',
     });
 
     if (result.success) {
@@ -81,6 +83,14 @@ function LoginForm() {
                 placeholder="Enter your password"
               />
             </div>
+
+            <label className="remember_me">
+              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+              <span>
+                Remember me
+                <small>Stay logged in on this device for 30 days. Untick on shared computers.</small>
+              </span>
+            </label>
 
             {error && <p className="auth_error">{error}</p>}
 

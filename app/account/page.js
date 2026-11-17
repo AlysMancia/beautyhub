@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import AccountCode from '../components/AccountCode';
 import SiteHeader from '../components/SiteHeader';
 import { api, logout, storeHref, useSession } from '../lib/api';
 import { money } from '../lib/format';
@@ -37,6 +38,7 @@ export default function AccountPage() {
       </SiteHeader>
 
       <div className="page_wrap">
+        <AccountCode code={user.code} />
         <h1>My stores</h1>
         {memberships.length === 0 ? (
           <div className="store_empty" style={{ marginTop: '1rem' }}>

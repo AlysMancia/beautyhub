@@ -13,7 +13,7 @@ export default function SiteHeader({ title = 'InVoice', tag = 'Beauty Â· Sales Â
               <img src={logo} alt="" />
               <span className="brand_name">{title}</span>
             </div>
-            <span className="brand_tag">{tag}</span>
+            {tag && <span className="brand_tag">{tag}</span>}
           </Link>
           <div style={{ flex: 1 }} />
           <div className="users_tab header_actions">{children}</div>

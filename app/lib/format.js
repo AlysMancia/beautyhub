@@ -42,3 +42,9 @@ export function formatAddress(loc) {
   ];
   return parts.filter(Boolean).join(', ');
 }
+
+/** "K7M2QX9P" -> "K7M2-QX9P" (account codes). */
+export function formatCode(code) {
+  if (!code) return '';
+  return code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
+}

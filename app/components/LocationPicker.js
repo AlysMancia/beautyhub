@@ -1,5 +1,6 @@
 'use client';
 
+import SearchSelect from './SearchSelect';
 import dynamic from 'next/dynamic';
 import { useEffect, useState } from 'react';
 export { formatAddress } from '../lib/format';
@@ -139,10 +140,10 @@ export default function LocationPicker({ value, onChange }) {
   const select = (label, current, items, onPick, { disabled, busy, placeholder }) => (
     <label>
       {label}
-      <select className="dash-select full" value={current || ''} onChange={(e) => onPick(e.target.value)} disabled={disabled || busy}>
+      <SearchSelect className="dash-select full" value={current || ''} onChange={(e) => onPick(e.target.value)} disabled={disabled || busy}>
         <option value="">{busy ? 'Loading…' : placeholder}</option>
         {items.map((i) => <option key={i.code} value={i.code}>{i.name}</option>)}
-      </select>
+      </SearchSelect>
     </label>
   );
 

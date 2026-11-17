@@ -1,8 +1,11 @@
 'use client';
 
+import SearchSelect from '../../components/SearchSelect';
 import Link from 'next/link';
 import { useRef, useState } from 'react';
 import Pager from '../../components/Pager';
+import ProductThumb from '../../components/ProductThumb';
+import EditableCell from '../../components/EditableCell';
 import { api } from '../../lib/api';
 import { exportProducts, readProductsFile } from '../../lib/excel';
 import { money, promoLabel } from '../../lib/format';
@@ -51,6 +54,15 @@ export default function ProductsPage() {
       setError(e.message || 'Could not read that file. Please use an .xlsx file.');
     }
     setBusy('');
+  };
+
+  /** Save one clicked cell (name, stock or a tier price) and update that row. */
+  const quickSave = async (product, field, value, roleId) => {
+    const result = await api('quick_update_product', { product_id: product.id, field, value, role_id: roleId ?? '' });
+    if (result.success) {
+      list.mutate((d) => ({ ...d, products: d.products.map((x) => (x.id === product.id ? result.product : x)) }));
+    }
+    return result;
   };
 
   const remove = async (product) => {
@@ -102,21 +114,21 @@ export default function ProductsPage() {
       <article className="card list-card">
         <div className="toolbar">
           <input className="dash-input" placeholder="Search name, SKU, brand, category…" value={filters.q} onChange={(e) => setFilter('q', e.target.value)} />
-          <select className="dash-select" value={filters.brand} onChange={(e) => setFilter('brand', e.target.value)} aria-label="Brand">
+          <SearchSelect className="dash-select" value={filters.brand} onChange={(e) => setFilter('brand', e.target.value)} aria-label="Brand">
             <option value="">All brands</option>
             {data?.brands.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.product_count})</option>)}
-          </select>
-          <select className="dash-select" value={filters.category} onChange={(e) => setFilter('category', e.target.value)} aria-label="Category">
+          </SearchSelect>
+          <SearchSelect className="dash-select" value={filters.category} onChange={(e) => setFilter('category', e.target.value)} aria-label="Category">
             <option value="">All categories</option>
             {data?.categories.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.product_count})</option>)}
             <option value="none">No category</option>
-          </select>
-          <select className="dash-select" value={filters.stock} onChange={(e) => setFilter('stock', e.target.value)} aria-label="Stock">
+          </SearchSelect>
+          <SearchSelect className="dash-select" value={filters.stock} onChange={(e) => setFilter('stock', e.target.value)} aria-label="Stock">
             <option value="">Any stock</option>
             <option value="in">In stock</option>
             <option value="low">Low stock</option>
             <option value="out">Out of stock</option>
-          </select>
+          </SearchSelect>
           <Pager list={list} label="products" sizes={[50, 100, 200]} />
         </div>
 
@@ -150,22 +162,49 @@ export default function ProductsPage() {
                 {data.products.map((p) => (
                   <tr key={p.id} className={p.is_active ? '' : 'inactive'}>
                     <td className="thumb-cell">
-                      {p.cover ? <img src={p.cover} alt="" className="thumb" loading="lazy" /> : <span className="thumb empty"><i className="fa-regular fa-image" /></span>}
+                      <ProductThumb product={p} onChanged={list.reload} />
                     </td>
                     <td>
-                      <Link href={`/dashboard/products/${p.id}`} className="product-link">{p.name}</Link>
+                      <EditableCell
+                        value={p.name}
+                        display={<span className="product-name">{p.name}</span>}
+                        onSave={(v) => quickSave(p, 'name', v)}
+                        title="Click to rename"
+                      />
                       <small>
                         {p.brand}
                         {p.size && ` · ${p.size}`}
                         {p.sku && ` · ${p.sku}`}
+                        {p.has_variants && ` · ${p.variants.length} ${(p.variant_label || 'variant').toLowerCase()}${p.variants.length === 1 ? '' : 's'}`}
                         {p.media_count > 1 && ` · ${p.media_count} files`}
                         {!p.is_active && ' · hidden'}
                       </small>
                     </td>
                     <td>{p.category || <span className="muted">—</span>}</td>
-                    <td className={`num${p.stock_qty <= 0 ? ' out' : p.stock_qty <= p.reorder_level ? ' low-stock' : ''}`}>{p.stock_qty}</td>
+                    <td className={`num${p.stock_qty <= 0 ? ' out' : p.stock_qty <= p.reorder_level ? ' low-stock' : ''}`}>
+                      <EditableCell
+                        value={String(p.stock_qty)}
+                        inputMode="numeric"
+                        align="right"
+                        width={70}
+                        onSave={(v) => quickSave(p, 'stock', v)}
+                        title="Click to set the stock count"
+                        disabled={p.has_variants}
+                        disabledTitle={`Stock is per ${(p.variant_label || 'variant').toLowerCase()} — edit it on the product page or in Inventory`}
+                      />
+                    </td>
                     {roles.map((r) => (
-                      <td key={r.id} className="num">{money(p.prices[r.id]) || <span className="muted">—</span>}</td>
+                      <td key={r.id} className="num">
+                        <EditableCell
+                          value={p.prices[r.id] !== undefined ? Number(p.prices[r.id]).toFixed(2) : ''}
+                          display={money(p.prices[r.id]) || <span className="muted">—</span>}
+                          inputMode="decimal"
+                          align="right"
+                          width={90}
+                          onSave={(v) => quickSave(p, 'price', v, r.id)}
+                          title={`Click to change the ${r.name} price (leave empty to remove)`}
+                        />
+                      </td>
                     ))}
                     <td>
                       {p.promo_price !== null && (

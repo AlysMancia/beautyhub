@@ -65,5 +65,7 @@ export function useServerList(functionName, initialFilters = {}, { perPage = 50,
     setPerPage: (n) => { setSize(n); setPage(1); },
     total: data?.total ?? 0,
     reload: load,
+    /** Update the loaded data in place (e.g. one edited row) without asking the server again. */
+    mutate: setData,
   };
 }

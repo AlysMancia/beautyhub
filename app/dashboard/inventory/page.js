@@ -1,5 +1,6 @@
 'use client';
 
+import SearchSelect from '../../components/SearchSelect';
 import Link from 'next/link';
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -7,6 +8,7 @@ import { api } from '../../lib/api';
 import { money } from '../../lib/format';
 import { useServerList } from '../../lib/useServerList';
 import Pager from '../../components/Pager';
+import ProductThumb from '../../components/ProductThumb';
 
 const REASONS = {
   opening: 'Opening stock',
@@ -24,6 +26,10 @@ function AdjustPanel({ product, onDone, onCancel }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState(null);
+  const variants = product.variants ?? [];
+  const [variantId, setVariantId] = useState(variants.length === 1 ? String(variants[0].id) : '');
+  const variant = variants.find((v) => String(v.id) === variantId);
+  const base = product.has_variants ? variant?.stock_qty ?? 0 : product.stock_qty;
 
   useEffect(() => {
     api('stock_history', { product_id: product.id }).then((d) => d.success && setHistory(d.movements));
@@ -32,17 +38,18 @@ function AdjustPanel({ product, onDone, onCancel }) {
   const preview =
     qty === '' || !/^\d+$/.test(qty)
       ? null
-      : mode === 'add' ? product.stock_qty + Number(qty) : mode === 'remove' ? product.stock_qty - Number(qty) : Number(qty);
+      : mode === 'add' ? base + Number(qty) : mode === 'remove' ? base - Number(qty) : Number(qty);
 
   const save = async (e) => {
     e.preventDefault();
     setError('');
     if (qty === '' && level === String(product.reorder_level)) return onCancel();
+    if (qty !== '' && product.has_variants && !variantId) return setError(`Choose which ${(product.variant_label || 'variant').toLowerCase()} to adjust.`);
     setBusy(true);
     const result =
       qty === ''
         ? await api('set_reorder_level', { product_id: product.id, reorder_level: level })
-        : await api('adjust_stock', { product_id: product.id, mode, qty, note, reorder_level: level });
+        : await api('adjust_stock', { product_id: product.id, variant_id: variantId, mode, qty, note, reorder_level: level });
     setBusy(false);
     if (!result.success) return setError(result.message || 'Could not save.');
     onDone();
@@ -52,11 +59,16 @@ function AdjustPanel({ product, onDone, onCancel }) {
     <tr className="adjust-row">
       <td colSpan={8}>
         <form className="adjust-form" onSubmit={save}>
-          <select className="dash-select" value={mode} onChange={(e) => setMode(e.target.value)} aria-label="Change type">
+          {product.has_variants && (
+            <SearchSelect className="dash-select" value={variantId} onChange={(e) => setVariantId(e.target.value)} aria-label={product.variant_label || 'Variant'} placeholder={`Which ${(product.variant_label || 'variant').toLowerCase()}?`}>
+              {variants.map((v) => <option key={v.id} value={v.id}>{v.name} — {v.stock_qty} in stock</option>)}
+            </SearchSelect>
+          )}
+          <SearchSelect className="dash-select" value={mode} onChange={(e) => setMode(e.target.value)} aria-label="Change type">
             <option value="add">Add stock (delivery)</option>
             <option value="remove">Remove (damaged, used, lost)</option>
             <option value="set">Set exact count</option>
-          </select>
+          </SearchSelect>
           <input className="dash-input" style={{ width: 100 }} inputMode="numeric" placeholder="Qty" value={qty} onChange={(e) => setQty(e.target.value.replace(/\D/g, ''))} autoFocus />
           <input className="dash-input" style={{ flex: 1, minWidth: 160 }} placeholder="Note (optional), e.g. Delivery from supplier" value={note} maxLength={255} onChange={(e) => setNote(e.target.value)} />
           <label className="inline-label">
@@ -80,7 +92,7 @@ function AdjustPanel({ product, onDone, onCancel }) {
                 {history.map((m) => (
                   <tr key={m.id}>
                     <td>{new Date(m.created_at).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}</td>
-                    <td>{REASONS[m.reason] ?? m.reason}</td>
+                    <td>{REASONS[m.reason] ?? m.reason}{m.variant && <small> · {m.variant}</small>}</td>
                     <td className={`num ${m.qty_change > 0 ? 'plus' : 'minus'}`}>{m.qty_change > 0 ? `+${m.qty_change}` : m.qty_change}</td>
                     <td className="num">→ {m.stock_after}</td>
                     <td>
@@ -175,7 +187,7 @@ function InventoryInner() {
                 {data.products.map((p) => [
                   <tr key={p.id} className={p.is_active ? '' : 'inactive'}>
                     <td className="thumb-cell">
-                      {p.cover ? <img src={p.cover} alt="" className="thumb" loading="lazy" /> : <span className="thumb empty"><i className="fa-regular fa-image" /></span>}
+                      <ProductThumb product={p} onChanged={list.reload} />
                     </td>
                     <td>
                       {p.name}
@@ -192,6 +204,15 @@ function InventoryInner() {
                       </button>
                     </td>
                   </tr>,
+                  ...(p.has_variants ? p.variants : []).map((v) => (
+                    <tr key={`v${v.id}`} className={`variant-rows${v.is_active ? '' : ' inactive'}`}>
+                      <td />
+                      <td>↳ {v.name}{v.sku && <small>{v.sku}</small>}</td>
+                      <td className="muted">{p.variant_label}</td>
+                      <td className={`num ${v.stock_qty <= 0 ? 'out' : ''}`}>{v.stock_qty}</td>
+                      <td colSpan={4} />
+                    </tr>
+                  )),
                   open === p.id && (
                     <AdjustPanel
                       key={`adj-${p.id}`}

@@ -10,7 +10,9 @@ const VIDEO_ACCEPT = 'video/mp4,video/webm,video/quicktime';
  * A product's cover photo, other photos and videos.
  * Upload several at once; tap a photo's star to make it the cover.
  */
-export default function MediaManager({ productId, media, onChange }) {
+export default function MediaManager({ productId, media, onChange, onSelect, selectedId }) {
+  // With onSelect, clicking a tile selects it (shown elsewhere) instead of opening a lightbox.
+  const view = (m) => (onSelect ? onSelect(m) : setPreview(m));
   const [uploads, setUploads] = useState([]); // [{ name, progress }]
   const [error, setError] = useState('');
   const [preview, setPreview] = useState(null);
@@ -57,8 +59,8 @@ export default function MediaManager({ productId, media, onChange }) {
         }}
       >
         {photos.map((m) => (
-          <figure key={m.id} className={`media-tile${m.is_cover ? ' cover' : ''}`}>
-            <button type="button" className="media-open" onClick={() => setPreview(m)} aria-label="View photo">
+          <figure key={m.id} className={`media-tile${m.is_cover ? ' cover' : ''}${selectedId === m.id ? ' selected' : ''}`}>
+            <button type="button" className="media-open" onClick={() => view(m)} aria-label="View photo">
               <img src={m.thumb_path || m.path} alt="" loading="lazy" />
             </button>
             {m.is_cover && <span className="cover-badge">Cover</span>}
@@ -75,8 +77,8 @@ export default function MediaManager({ productId, media, onChange }) {
           </figure>
         ))}
         {videos.map((m) => (
-          <figure key={m.id} className="media-tile video">
-            <button type="button" className="media-open" onClick={() => setPreview(m)} aria-label="Play video">
+          <figure key={m.id} className={`media-tile video${selectedId === m.id ? ' selected' : ''}`}>
+            <button type="button" className="media-open" onClick={() => view(m)} aria-label="Play video">
               <video src={`${m.path}#t=0.5`} preload="metadata" muted />
               <i className="fa-solid fa-circle-play play" />
             </button>

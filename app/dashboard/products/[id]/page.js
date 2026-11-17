@@ -1,9 +1,11 @@
 'use client';
 
+import SearchSelect from '../../../components/SearchSelect';
 import Link from 'next/link';
 import { Suspense, useEffect, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import MediaManager from '../../../components/MediaManager';
+import VariantsEditor from '../../../components/VariantsEditor';
 import { api } from '../../../lib/api';
 import { margin } from '../../../lib/format';
 
@@ -57,6 +59,14 @@ function ProductFormPage() {
       });
     });
   }, [id, isNew]);
+
+  /** After variants change: refresh the product (stock total, variant list). */
+  const refreshProduct = async () => {
+    const data = await api('get_product', { id });
+    if (!data.success) return;
+    setCatalog(data);
+    setForm((f) => ({ ...f, stock_qty: data.product.stock_qty }));
+  };
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
   const setPrice = (roleId) => (e) => setForm((f) => ({ ...f, prices: { ...f.prices, [roleId]: e.target.value } }));
@@ -137,7 +147,7 @@ function ProductFormPage() {
             <label>
               Brand *
               {newBrand === null ? (
-                <select
+                <SearchSelect
                   className="dash-select full"
                   value={form.brand_id}
                   onChange={(e) => (e.target.value === '__new' ? setNewBrand('') : set('brand_id')(e))}
@@ -145,7 +155,7 @@ function ProductFormPage() {
                   <option value="">Choose a brand…</option>
                   {catalog.brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                   <option value="__new">+ Add a new brand…</option>
-                </select>
+                </SearchSelect>
               ) : (
                 <span className="inline-add">
                   <input
@@ -169,10 +179,10 @@ function ProductFormPage() {
 
             <label>
               Category
-              <select className="dash-select full" value={form.category_id} onChange={set('category_id')}>
+              <SearchSelect className="dash-select full" value={form.category_id} onChange={set('category_id')}>
                 <option value="">No category</option>
                 {catalog.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              </SearchSelect>
             </label>
 
             <label>
@@ -188,10 +198,10 @@ function ProductFormPage() {
                     aria-label={`How many ${uom.name.toLowerCase()}s`}
                   />
                 )}
-                <select className="dash-select full" value={form.uom_id} onChange={set('uom_id')}>
+                <SearchSelect className="dash-select full" value={form.uom_id} onChange={set('uom_id')}>
                   <option value="">No unit</option>
                   {catalog.uoms.map((u) => <option key={u.id} value={u.id}>{u.code} — {u.name}</option>)}
-                </select>
+                </SearchSelect>
               </span>
               {uom?.is_measure && <small className="muted">How many {uom.name.toLowerCase()}s, e.g. 500 → “500 {uom.code}”</small>}
             </label>
@@ -261,6 +271,15 @@ function ProductFormPage() {
           </p>
         </article>
 
+        <article className="card">
+          <h3>Variants</h3>
+          {isNew ? (
+            <p className="muted" style={{ margin: 0 }}>Save the product first, then add its shades, colors or sizes here.</p>
+          ) : (
+            <VariantsEditor productId={id} product={catalog.product} media={media} onMediaChange={setMedia} roles={catalog.roles} productPrices={form.prices} onSaved={refreshProduct} />
+          )}
+        </article>
+
         </div>
 
         <div className="col-side">
@@ -286,7 +305,11 @@ function ProductFormPage() {
                 In stock
                 <span className="stock-now">
                   <strong className={form.stock_qty <= Number(form.reorder_level) ? 'low' : ''}>{form.stock_qty}</strong>
-                  <Link href={`/dashboard/inventory?product=${id}`}>Adjust stock →</Link>
+                  {catalog.product?.has_variants ? (
+                    <span className="muted">total of {catalog.product.variants.length} {(catalog.product.variant_label || 'variant').toLowerCase()}s</span>
+                  ) : (
+                    <Link href={`/dashboard/inventory?product=${id}`}>Adjust stock →</Link>
+                  )}
                 </span>
               </label>
             )}

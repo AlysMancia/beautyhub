@@ -1,5 +1,6 @@
 'use client';
 
+import SearchSelect from './SearchSelect';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { money } from '../lib/format';
@@ -107,7 +108,8 @@ export default function InvoiceEditor({ invoice = null, onSaved, extraActions })
   const [lines, setLines] = useState(
     invoice?.items.map((it) => ({
       key: it.id, product_id: it.product_id, name: it.product_name, brand: it.brand_name, uom: it.uom,
-      qty: String(it.qty), unit_price: Number(it.unit_price).toFixed(2), cost: it.unit_cost, stock_qty: null,
+      qty: String(it.qty), unit_price: Number(it.unit_price).toFixed(2), cost: it.unit_cost, stock_qty: null, image: it.image,
+      variant_id: it.variant_id ? String(it.variant_id) : '', variant_name: it.variant_name, variants: [], variant_label: '',
     })) ?? []
   );
   const [discount, setDiscount] = useState(invoice && Number(invoice.discount) ? Number(invoice.discount).toFixed(2) : '');
@@ -132,7 +134,10 @@ export default function InvoiceEditor({ invoice = null, onSaved, extraActions })
     api('quote_prices', { role_id: roleId, ids: JSON.stringify(ids) }).then((d) => {
       if (!d.success) return;
       const byId = Object.fromEntries(d.products.map((p) => [p.id, p]));
-      setLines((ls) => ls.map((l) => (byId[l.product_id] ? { ...l, stock_qty: byId[l.product_id].stock_qty } : l)));
+      setLines((ls) => ls.map((l) => {
+        const p = byId[l.product_id];
+        return p ? { ...l, stock_qty: p.stock_qty, variants: p.variants ?? [], variant_label: p.variant_label ?? '' } : l;
+      }));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEdit]);
@@ -147,14 +152,17 @@ export default function InvoiceEditor({ invoice = null, onSaved, extraActions })
     setLines((ls) =>
       ls.map((l) => {
         const p = byId[l.product_id];
-        return p ? { ...l, unit_price: p.price === null ? '' : Number(p.price).toFixed(2), cost: p.cost, stock_qty: p.stock_qty } : l;
+        if (!p) return l;
+        const v = p.variants?.find((x) => String(x.id) === String(l.variant_id));
+        const price = v ? v.price : p.price;
+        return { ...l, unit_price: price == null ? '' : Number(price).toFixed(2), cost: v ? v.cost : p.cost, stock_qty: p.stock_qty, variants: p.variants ?? l.variants };
       })
     );
   };
 
   const chooseCustomer = (c) => {
     setCustomer(c);
-    setContact(c?.email ?? '');
+    setContact(c?.phone || c?.email || '');
     if (c?.role_id) {
       setRoleId(String(c.role_id));
       repriceAll(c.role_id);
@@ -168,13 +176,15 @@ export default function InvoiceEditor({ invoice = null, onSaved, extraActions })
 
   const addProduct = (p) => {
     setLines((ls) => {
-      const existing = ls.find((l) => l.product_id === p.id);
+      const existing = !p.has_variants && ls.find((l) => l.product_id === p.id);
       if (existing) return ls.map((l) => (l === existing ? { ...l, qty: String(Number(l.qty || 0) + 1) } : l));
       return [
         ...ls,
         {
           key: `n${Date.now()}`, product_id: p.id, name: p.name, brand: p.brand, uom: p.uom, qty: '1',
-          unit_price: p.price === null ? '' : Number(p.price).toFixed(2), cost: p.cost, stock_qty: p.stock_qty,
+          unit_price: p.price === null ? '' : Number(p.price).toFixed(2), cost: p.cost, stock_qty: p.stock_qty, image: p.cover,
+          variants: p.variants ?? [], variant_label: p.variant_label ?? '', variant_id: p.variants?.length === 1 ? String(p.variants[0].id) : '', variant_name: '',
+          ...(p.variants?.length === 1 && p.variants[0].price != null ? { unit_price: Number(p.variants[0].price).toFixed(2), cost: p.variants[0].cost } : {}),
         },
       ];
     });
@@ -193,6 +203,8 @@ export default function InvoiceEditor({ invoice = null, onSaved, extraActions })
     setError('');
     setShortages(null);
     if (!lines.length) return setError('Add at least one product.');
+    const missing = lines.find((l) => l.variants?.length && !l.variant_id);
+    if (missing) return setError(`${missing.name}: choose a ${(missing.variant_label || 'variant').toLowerCase()}.`);
     setBusy(approve ? 'approve' : 'save');
     const result = await api('save_invoice', {
       id: invoice?.id ?? '',
@@ -202,7 +214,7 @@ export default function InvoiceEditor({ invoice = null, onSaved, extraActions })
       role_id: roleId,
       discount,
       notes,
-      items: JSON.stringify(lines.map((l) => ({ product_id: l.product_id, qty: l.qty, unit_price: l.unit_price }))),
+      items: JSON.stringify(lines.map((l) => ({ product_id: l.product_id, variant_id: l.variant_id || '', qty: l.qty, unit_price: l.unit_price }))),
       approve: approve ? '1' : '',
       allow_oversell: allowOversell ? '1' : '',
     });
@@ -243,7 +255,7 @@ export default function InvoiceEditor({ invoice = null, onSaved, extraActions })
                   render={(c) => (
                     <span>
                       <strong>{c.name}</strong>
-                      <small>@{c.username} · {c.email}{c.role_name ? ` · ${c.role_name}` : ''}</small>
+                      <small>{[c.phone, c.email, c.role_name].filter(Boolean).join(' · ')}</small>
                     </span>
                   )}
                   onPick={chooseCustomer}
@@ -258,11 +270,11 @@ export default function InvoiceEditor({ invoice = null, onSaved, extraActions })
           </label>
           <label>
             Price tier
-            <select className="dash-select full" value={roleId} onChange={(e) => chooseRole(e.target.value)}>
+            <SearchSelect className="dash-select full" value={roleId} onChange={(e) => chooseRole(e.target.value)}>
               {roles.map((r) => (
                 <option key={r.id} value={r.id}>{r.tier_level}. {r.name}{r.is_default ? ' (default)' : ''}</option>
               ))}
-            </select>
+            </SearchSelect>
           </label>
         </div>
       </article>
@@ -276,7 +288,7 @@ export default function InvoiceEditor({ invoice = null, onSaved, extraActions })
               {p.cover ? <img src={p.cover} alt="" className="thumb sm" /> : <span className="thumb sm empty"><i className="fa-regular fa-image" /></span>}
               <span className="grow">
                 <strong>{p.name}</strong>
-                <small>{p.brand}{!p.is_active && ' · hidden'} · {p.price === null ? 'no price' : money(p.price)}</small>
+                <small>{p.brand}{!p.is_active && ' · hidden'}{p.has_variants && ` · ${p.variants.length} ${(p.variant_label || 'variant').toLowerCase()}s`} · {p.price === null ? 'no price' : money(p.price)}</small>
               </span>
               <span className={`stock-pill ${stockClass(p)}`}>{p.stock_qty} in stock</span>
             </>
@@ -299,16 +311,44 @@ export default function InvoiceEditor({ invoice = null, onSaved, extraActions })
               </thead>
               <tbody>
                 {lines.map((l) => {
-                  const known = l.stock_qty !== null && l.stock_qty !== undefined;
-                  const short = known && Number(l.qty) > l.stock_qty;
+                  // For a variant product, stock is the chosen variant's.
+                  const variant = l.variants?.find((v) => String(v.id) === String(l.variant_id));
+                  const stock = l.variants?.length ? variant?.stock_qty : l.stock_qty;
+                  const known = stock !== null && stock !== undefined;
+                  const short = known && Number(l.qty) > stock;
+                  const image = variant?.image || l.image;
                   return (
                     <tr key={l.key}>
                       <td>
+                        <span className="line-item">
+                        {image && <img src={image} alt="" className="line-img" />}
+                        <span>
                         {l.name}
+                        {l.variants?.length > 0 ? (
+                          <SearchSelect
+                            className={`dash-select variant-select${l.variant_id ? '' : ' missing'}`}
+                            value={l.variant_id}
+                            onChange={(e) => {
+                              // A variant can have its own price: use it.
+                              const v = l.variants.find((x) => String(x.id) === e.target.value);
+                              setLine(l.key, { variant_id: e.target.value, ...(v && v.price != null ? { unit_price: Number(v.price).toFixed(2), cost: v.cost } : {}) });
+                            }}
+                            placeholder={`Choose ${(l.variant_label || 'variant').toLowerCase()}…`}
+                            aria-label={`${l.variant_label || 'Variant'} of ${l.name}`}
+                          >
+                            {l.variants.map((v) => (
+                              <option key={v.id} value={v.id}>{v.name} — {v.stock_qty} in stock{v.price != null ? ` · ${money(v.price)}` : ''}{v.is_active ? '' : ' (not on sale)'}</option>
+                            ))}
+                          </SearchSelect>
+                        ) : (
+                          l.variant_name && <small>{l.variant_name}</small>
+                        )}
                         <small>
                           {l.brand}
-                          {!l.product_id ? ' · product deleted' : known && <span className={short ? 'warn' : ''}> · {l.stock_qty} in stock</span>}
+                          {!l.product_id ? ' · product deleted' : known && <span className={short ? 'warn' : ''}> · {stock} in stock</span>}
                         </small>
+                        </span>
+                        </span>
                       </td>
                       <td className="num">
                         <input className="dash-input qty" inputMode="numeric" value={l.qty} onChange={(e) => setLine(l.key, { qty: e.target.value.replace(/\D/g, '') })} aria-label={`Quantity of ${l.name}`} />

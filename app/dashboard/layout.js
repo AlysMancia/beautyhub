@@ -12,6 +12,7 @@ const NAV = [
   { href: '/dashboard/invoices', label: 'Invoices', icon: 'fa-file-invoice', badge: 'pending' },
   { href: '/dashboard/products', label: 'Products', icon: 'fa-box-open' },
   { href: '/dashboard/inventory', label: 'Inventory', icon: 'fa-warehouse' },
+  { href: '/dashboard/price-list', label: 'Price list', icon: 'fa-tags' },
   { href: '/dashboard/customers', label: 'Customers', icon: 'fa-users' },
   { label: 'Reports', icon: 'fa-chart-line' },
 ];

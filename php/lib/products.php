@@ -106,7 +106,7 @@ function product_rows($conn, $storeId, $productId = null, array $opts = []) {
     }
 
     $stmt = $conn->prepare(
-        "SELECT p.id, p.name, p.sku, p.description, p.is_active,
+        "SELECT p.id, p.name, p.sku, p.description, p.is_active, p.has_variants, p.variant_label,
                 p.brand_id, b.name AS brand, b.logo_path AS brand_logo,
                 p.product_category_id AS category_id, c.name AS category,
                 p.uom_id, u.code AS uom, u.is_measure AS uom_is_measure, p.uom_qty,
@@ -129,6 +129,13 @@ function product_rows($conn, $storeId, $productId = null, array $opts = []) {
         $row['promo_active'] = promo_is_active($row);
         return $row;
     }, $stmt->fetchAll());
+
+    // Variants (shades, sizes…) of the products that have them.
+    $variants = variants_for_products($conn, array_column(array_filter($rows, fn ($r) => $r['has_variants']), 'id'));
+    foreach ($rows as &$r) {
+        $r['variants'] = $variants[$r['id']] ?? [];
+    }
+    unset($r);
 
     return $total === null ? $rows : [$rows, $total];
 }

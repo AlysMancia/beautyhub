@@ -50,6 +50,8 @@ function change_password($conn) {
 
     $conn->prepare('UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?')
         ->execute([password_hash($new, PASSWORD_DEFAULT), $user['id']]);
+    // New password: other remembered browsers must log in again (this one stays).
+    forget_all_remember_tokens($conn, $user['id'], true);
     session_regenerate_id(true);
     respond(['success' => true]);
 }
